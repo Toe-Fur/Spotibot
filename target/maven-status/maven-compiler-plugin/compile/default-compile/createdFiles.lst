@@ -1,0 +1,4 @@
+com\example\bot\AudioPlayerSendHandler.class
+com\example\bot\TrackScheduler.class
+com\example\bot\AudioLoadResultHandlerImpl.class
+com\example\bot\Spotibot.class
