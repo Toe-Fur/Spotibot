@@ -1,3 +1,4 @@
+com\example\bot\TrackSchedulerRegistry.class
 com\example\bot\AudioPlayerSendHandler.class
 com\example\bot\TrackScheduler.class
 com\example\bot\AudioLoadResultHandlerImpl.class

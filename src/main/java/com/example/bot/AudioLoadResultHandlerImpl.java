@@ -10,24 +10,32 @@ import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import java.io.File;
 
 public class AudioLoadResultHandlerImpl implements AudioLoadResultHandler {
+
     private final AudioPlayer player;
     private final GuildMessageChannel messageChannel;
     private final TrackScheduler trackScheduler;
     private final File audioFile;
+    private final String trackTitle;  // Add a field for the track title
 
-    public AudioLoadResultHandlerImpl(AudioPlayer player, GuildMessageChannel messageChannel, TrackScheduler trackScheduler, File audioFile) {
+    // Update the constructor to accept title
+    public AudioLoadResultHandlerImpl(AudioPlayer player, GuildMessageChannel messageChannel, TrackScheduler trackScheduler, File audioFile, String trackTitle) {
         this.player = player;
         this.messageChannel = messageChannel;
         this.trackScheduler = trackScheduler;
         this.audioFile = audioFile;
+        this.trackTitle = trackTitle;  // Store the title
     }
 
     @Override
     public void trackLoaded(AudioTrack track) {
         track.setUserData(audioFile.getAbsolutePath());
         trackScheduler.queue(track);
-        messageChannel.sendMessage("Queued: " + track.getInfo().title).queue();
+
+        // Use the passed title to send the "Track loaded" message
+        messageChannel.sendMessage("Track loaded and ready: " + trackTitle).queue();
     }
+
+    // Other methods should be implemented here as needed
 
     @Override
     public void playlistLoaded(AudioPlaylist playlist) {
