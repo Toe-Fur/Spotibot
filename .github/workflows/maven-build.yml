@@ -1,22 +1,24 @@
 name: Maven Build
 
 on:
-  # push:
-  #   branches:
-  #     - main
-  # pull_request:
-  #   branches:
-  #     - main
-  workflow_dispatch: # Allows manual triggering of the workflow
+  # This enables manual triggering from any branch
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build'
+        required: true
+        default: 'main'
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout the code
+      # Checkout the code from the specified branch
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.inputs.branch }}
 
       # Set up JDK
       - name: Set up JDK 17
