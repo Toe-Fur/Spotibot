@@ -20,8 +20,8 @@ import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import javax.security.auth.login.LoginException;
 import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -45,6 +45,7 @@ public class Spotibot extends ListenerAdapter {
     private static String stopEmoji;
     private static String queueEmoji;
     private static final String BASE_DOWNLOAD_FOLDER = "downloads/";
+    private static final String CONFIG_FILE_NAME = "config.json";
 
     public final ConcurrentHashMap<Long, LinkedBlockingQueue<String>> serverQueues = new ConcurrentHashMap<>();
     public final ConcurrentHashMap<Long, LinkedBlockingQueue<String>> serverTitles = new ConcurrentHashMap<>();
@@ -55,6 +56,7 @@ public class Spotibot extends ListenerAdapter {
     }
 
     public static void main(String[] args) {
+        ensureConfigFileExists();
         loadConfig();
 
         if (BOT_TOKEN == null || BOT_TOKEN.isEmpty()) {
@@ -72,9 +74,37 @@ public class Spotibot extends ListenerAdapter {
         }
     }
 
+    private static void ensureConfigFileExists() {
+        File configFile = new File(CONFIG_FILE_NAME);
+
+        if (!configFile.exists()) {
+            try (FileWriter writer = new FileWriter(configFile)) {
+                writer.write("{\n" +
+                        "  \"bot_token\": \"YOUR_BOT_TOKEN_HERE\",\n" +
+                        "  \"status\": \"Playing music on Discord\",\n" +
+                        "  \"default_volume\": 60,\n" +
+                        "  \"queue_format\": {\n" +
+                        "    \"now_playing\": \"🎶 **Now Playing:** {title}\",\n" +
+                        "    \"queued\": \"📍 **{index}. {title}**\"\n" +
+                        "  },\n" +
+                        "  \"emojis\": {\n" +
+                        "    \"skip\": \"⏩\",\n" +
+                        "    \"stop\": \"⏹️\",\n" +
+                        "    \"queue\": \"📝\"\n" +
+                        "  }\n" +
+                        "}\n");
+                System.out.println("Created default config.json file in the current directory.");
+            } catch (IOException e) {
+                System.err.println("Failed to create config.json: " + e.getMessage());
+            }
+        } else {
+            System.out.println("Config file already exists. Skipping creation.");
+        }
+    }
+
     private static void loadConfig() {
         try {
-            File configFile = new File("config.json"); // Updated path
+            File configFile = new File(CONFIG_FILE_NAME);
 
             if (!configFile.exists()) {
                 logger.error("Config file not found. Please create config.json and provide the necessary configuration.");

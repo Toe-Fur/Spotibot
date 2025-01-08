@@ -11,6 +11,9 @@
         <!-- Specify Java version compatibility -->
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
+        <!-- Sets the encoding to UTF-8 -->
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.encoding>UTF-8</maven.compiler.encoding>
     </properties>
 
     <repositories>
@@ -90,31 +93,6 @@
                     </execution>
                 </executions>
             </plugin>
-
-            <!-- Plugin to run a batch script during the build process -->
-<!--             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-antrun-plugin</artifactId>
-                <version>3.0.0</version>
-                <executions>
-                    <execution>
-                        <id>run-create-config</id>
-                        <phase>generate-resources</phase>
-                        <configuration>
-                            <target> -->
-                                <!-- Executes the batch script to generate a config file -->
-<!--                                 <exec executable="cmd">
-                                    <arg value="/c"/>
-                                    <arg value="create-config.bat"/>
-                                </exec>
-                            </target>
-                        </configuration>
-                        <goals>
-                            <goal>run</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin> -->
         </plugins>
     </build>
 </project>
