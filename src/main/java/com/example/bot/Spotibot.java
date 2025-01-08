@@ -1,6 +1,6 @@
 package com.example.bot;
 
-import com.sedmelluq.discord.lavaplayer.player.AudioPlayer;  // Import AudioPlayer
+import com.sedmelluq.discord.lavaplayer.player.AudioPlayer;
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayerManager;
 import com.sedmelluq.discord.lavaplayer.player.DefaultAudioPlayerManager;
 import com.sedmelluq.discord.lavaplayer.source.AudioSourceManagers;
@@ -23,6 +23,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import javax.security.auth.login.LoginException;
 import java.io.File;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -30,27 +32,30 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class Spotibot extends ListenerAdapter {
-    private static final Logger logger = LoggerFactory.getLogger(Spotibot.class); // Added logger
+    private static final Logger logger = LoggerFactory.getLogger(Spotibot.class);
     private final AudioPlayerManager playerManager = new DefaultAudioPlayerManager();
     private final ExecutorService downloadExecutor = Executors.newCachedThreadPool();
     private TrackSchedulerRegistry trackSchedulerRegistry;
-    private static String BOT_TOKEN;  // Removed the hardcoded token
-    private static String STATUS;  // Bot status
-    private static int defaultVolume = 60;  // Default volume value
+    private static String BOT_TOKEN;
+    private static String STATUS;
+    private static int defaultVolume = 60;
     private static String nowPlayingFormat;
     private static String queuedFormat;
     private static String skipEmoji;
     private static String stopEmoji;
     private static String queueEmoji;
+    private static final String BASE_DOWNLOAD_FOLDER = "downloads/";
 
-    // Queue management for each server
     public final ConcurrentHashMap<Long, LinkedBlockingQueue<String>> serverQueues = new ConcurrentHashMap<>();
     public final ConcurrentHashMap<Long, LinkedBlockingQueue<String>> serverTitles = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, String> currentlyPlayingTitles = new ConcurrentHashMap<>();
 
-    // Main method to start the bot
+    public LinkedBlockingQueue<String> getServerTitleQueue(long guildId) {
+        return serverTitles.get(guildId);
+    }
+
     public static void main(String[] args) {
-        loadConfig();  // Load the configuration before using BOT_TOKEN
+        loadConfig();
 
         if (BOT_TOKEN == null || BOT_TOKEN.isEmpty()) {
             throw new IllegalArgumentException("Bot token is not set. Please set the bot token in the config file.");
@@ -59,8 +64,8 @@ public class Spotibot extends ListenerAdapter {
         try {
             JDABuilder.createDefault(BOT_TOKEN)
                     .enableIntents(GatewayIntent.MESSAGE_CONTENT)
-                    .setActivity(Activity.playing(STATUS))  // Set the bot status
-                    .addEventListeners(new Spotibot()) // Register the listener
+                    .setActivity(Activity.playing(STATUS))
+                    .addEventListeners(new Spotibot())
                     .build();
         } catch (Exception e) {
             e.printStackTrace();
@@ -69,8 +74,7 @@ public class Spotibot extends ListenerAdapter {
 
     private static void loadConfig() {
         try {
-            // Load the config file from the target directory (adjust path as necessary)
-            File configFile = new File("src/resources/config.json");  // Path to your config.json
+            File configFile = new File("src/resources/config.json");
 
             if (!configFile.exists()) {
                 logger.error("Config file not found. Please ensure the config.json file is in the target directory.");
@@ -80,10 +84,9 @@ public class Spotibot extends ListenerAdapter {
             ObjectMapper mapper = new ObjectMapper();
             JsonNode config = mapper.readTree(configFile);
 
-            // Load bot token and other settings from config.json
-            BOT_TOKEN = config.get("bot_token").asText(); // Ensure this matches the key in your JSON
+            BOT_TOKEN = config.get("bot_token").asText();
             STATUS = config.get("status").asText();
-            defaultVolume = config.get("default_volume").asInt(60);  // Load default volume from config
+            defaultVolume = config.get("default_volume").asInt(60);
             nowPlayingFormat = config.get("queue_format").get("now_playing").asText();
             queuedFormat = config.get("queue_format").get("queued").asText();
             skipEmoji = config.get("emojis").get("skip").asText();
@@ -115,8 +118,8 @@ public class Spotibot extends ListenerAdapter {
         Guild guild = event.getGuild();
         TrackScheduler trackScheduler = trackSchedulerRegistry.getOrCreate(guild, this, playerManager.createPlayer());
 
-        // Set the default volume when a track is loaded
         trackScheduler.getPlayer().setVolume(defaultVolume);
+        String serverFolder = BASE_DOWNLOAD_FOLDER + guild.getId() + "/";
 
         if (message.startsWith("!play ")) {
             String input = message.replace("!play ", "").trim();
@@ -132,20 +135,18 @@ public class Spotibot extends ListenerAdapter {
 
             downloadExecutor.submit(() -> {
                 try {
-                    String title = getYouTubeTitle(input);  // Get title from YouTube URL or search
+                    String title = getYouTubeTitle(input);
                     if (title != null) {
-                        // Manage queue for this server
                         LinkedBlockingQueue<String> queue = serverQueues.computeIfAbsent(guild.getIdLong(), k -> new LinkedBlockingQueue<>());
                         LinkedBlockingQueue<String> titleQueue = serverTitles.computeIfAbsent(guild.getIdLong(), k -> new LinkedBlockingQueue<>());
 
-                        // Store the title in the queue
-                        queue.offer(input);  // Keep original input (URL or search term)
-                        titleQueue.offer(title);  // Store actual title in the title queue
+                        queue.offer(input);
+                        titleQueue.offer(title);
 
                         currentlyPlayingTitles.put(guild.getIdLong(), title);
-                        messageChannel.sendMessage(nowPlayingFormat.replace("{title}", title)).queue();
+                        messageChannel.sendMessage(queuedFormat.replace("{title}", title)).queue();
 
-                        File downloadedFile = downloadYouTubeAudio(input, guild);  
+                        File downloadedFile = downloadYouTubeAudio(input, serverFolder);
                         if (downloadedFile != null) {
                             playerManager.loadItem(downloadedFile.getAbsolutePath(), new AudioLoadResultHandlerImpl(trackScheduler.getPlayer(), messageChannel, trackScheduler, downloadedFile, title));
                         } else {
@@ -160,84 +161,77 @@ public class Spotibot extends ListenerAdapter {
             });
         } else if (message.equalsIgnoreCase("!skip") || message.equalsIgnoreCase(skipEmoji)) {
             if (trackScheduler.getPlayer().getPlayingTrack() != null) {
-                String currentTrackTitle = currentlyPlayingTitles.get(guild.getIdLong());
-                if (currentTrackTitle != null) {
-                    LinkedBlockingQueue<String> titleQueue = serverTitles.get(guild.getIdLong());
-                    if (titleQueue != null) {
-                        titleQueue.remove(currentTrackTitle);  // Remove played track from queue
-                    }
-                }
-                trackScheduler.nextTrack();
+                trackScheduler.nextTrack(); // Skip to the next track
                 messageChannel.sendMessage(skipEmoji + " Skipped to the next track.").queue();
+
+                if (trackScheduler.isQueueEmpty()) {
+                    guild.getAudioManager().closeAudioConnection();
+                    messageChannel.sendMessage("No more tracks in the queue. Leaving the voice channel.").queue();
+                }
             } else {
                 messageChannel.sendMessage("No track is currently playing to skip.").queue();
             }
         } else if (message.equalsIgnoreCase("!stop") || message.equalsIgnoreCase(stopEmoji)) {
             guild.getAudioManager().closeAudioConnection();
             trackScheduler.clearQueueAndStop();
-            clearDownloadsFolder(guild);
+            clearDownloadsFolder(serverFolder);
 
             serverQueues.remove(guild.getIdLong());
             serverTitles.remove(guild.getIdLong());
 
             messageChannel.sendMessage(stopEmoji + " Stopped playback, cleared the queue, and deleted all downloads for this server.").queue();
         } else if (message.equalsIgnoreCase("!queue") || message.equalsIgnoreCase(queueEmoji)) {
-            showQueue(event);
+            showQueue(event, serverFolder);
         } else if (message.equalsIgnoreCase("!help")) {
             messageChannel.sendMessage(getHelpMessage()).queue();
         }
     }
 
-    // Implement the getServerTitleQueue method to avoid the compilation error
-    public LinkedBlockingQueue<String> getServerTitleQueue(long guildId) {
-        return serverTitles.get(guildId);  // This assumes `serverTitles` is a map of guild IDs to queues
-    }
-
-    // Show queue
-    private void showQueue(MessageReceivedEvent event) {
-        Guild guild = event.getGuild();
-        LinkedBlockingQueue<String> titleQueue = serverTitles.get(guild.getIdLong());
-
-        if (titleQueue != null && !titleQueue.isEmpty()) {
-            StringBuilder queueMessage = new StringBuilder("🎶 **Now Playing and Queue** 🎶\n");
-            int index = 1;
-
-            for (String title : titleQueue) {
-                queueMessage.append(queuedFormat.replace("{index}", String.valueOf(index)).replace("{title}", title)).append("\n");
-                index++;
+    private void showQueue(MessageReceivedEvent event, String serverFolder) {
+        File downloadFolder = new File(serverFolder);
+        if (downloadFolder.exists() && downloadFolder.isDirectory()) {
+            File[] files = downloadFolder.listFiles();
+            if (files != null && files.length > 0) {
+                Arrays.sort(files, Comparator.comparingLong(File::lastModified));
+                StringBuilder queueMessage = new StringBuilder("🎶 **Now Playing and Queue** 🎶\n");
+                int index = 1;
+                for (File file : files) {
+                    queueMessage.append(index++).append(". ").append(file.getName()).append("\n");
+                }
+                event.getChannel().sendMessage(queueMessage.toString()).queue();
+            } else {
+                event.getChannel().sendMessage("The queue is empty.").queue();
             }
-
-            event.getChannel().sendMessage(queueMessage.toString()).queue();
         } else {
-            event.getChannel().sendMessage("The queue is currently empty.").queue();
+            event.getChannel().sendMessage("The downloads folder does not exist for this server.").queue();
         }
     }
 
-    private String getYouTubeTitle(String input) throws IOException, InterruptedException {
-        String query = input.startsWith("http://") || input.startsWith("https://") ? input : "ytsearch:" + input;
-
-        ProcessBuilder builder = new ProcessBuilder("yt-dlp", "--get-title", query);
-        builder.redirectErrorStream(true);
-        Process metadataProcess = builder.start();
-        String title = new String(metadataProcess.getInputStream().readAllBytes()).trim();
-
-        return title.isEmpty() ? null : title;
+    private File getCurrentTrackFile(String serverFolder) {
+        return new File(serverFolder + "current_track.mp3");
     }
 
-    private String sanitizeFileName(String input) {
-        return input.replaceAll("[^a-zA-Z0-9_-]", "_");
+    private void clearDownloadsFolder(String serverFolder) {
+        File downloadFolder = new File(serverFolder);
+        if (downloadFolder.exists() && downloadFolder.isDirectory()) {
+            for (File file : downloadFolder.listFiles()) {
+                if (file.isFile()) {
+                    file.delete();
+                }
+            }
+        }
     }
 
-    private File downloadYouTubeAudio(String input, Guild guild) throws IOException, InterruptedException {
+    private File downloadYouTubeAudio(String input, String serverFolder) throws IOException, InterruptedException {
         String title = getYouTubeTitle(input);
         if (title == null) return null;
 
         String sanitizedTitle = sanitizeFileName(title);
-        String outputFilePath = "downloads/" + guild.getIdLong() + "/" + sanitizedTitle + ".mp3";
+        String outputFilePath = serverFolder + sanitizedTitle + ".mp3";
 
-        File downloadsDir = new File("downloads/" + guild.getIdLong());
+        File downloadsDir = new File(serverFolder);
         if (!downloadsDir.exists()) {
-            downloadsDir.mkdir();
+            downloadsDir.mkdirs();
         }
 
         String query = input.startsWith("http://") || input.startsWith("https://") ? input : "ytsearch:" + input;
@@ -256,25 +250,25 @@ public class Spotibot extends ListenerAdapter {
         return new File(outputFilePath);
     }
 
-    private void clearDownloadsFolder(Guild guild) {
-        File serverFolder = new File("downloads/" + guild.getIdLong());
-        if (serverFolder.exists() && serverFolder.isDirectory()) {
-            File[] files = serverFolder.listFiles();
-            if (files != null) {
-                for (File file : files) {
-                    if (file.isFile() && file.getName().endsWith(".mp3")) {
-                        file.delete();
-                    }
-                }
-            }
-        }
+    private String getYouTubeTitle(String input) throws IOException, InterruptedException {
+        String query = input.startsWith("http://") || input.startsWith("https://") ? input : "ytsearch:" + input;
+
+        ProcessBuilder builder = new ProcessBuilder("yt-dlp", "--get-title", query);
+        builder.redirectErrorStream(true);
+        Process metadataProcess = builder.start();
+        String title = new String(metadataProcess.getInputStream().readAllBytes()).trim();
+
+        return title.isEmpty() ? null : title;
+    }
+
+    private String sanitizeFileName(String input) {
+        return input.replaceAll("[^a-zA-Z0-9_-]", "_");
     }
 
     private String getHelpMessage() {
         return "**Spotibot Commands**:\n" +
                 "`!play <URL or search term>` - Plays a YouTube video. If something is already playing, it will queue the track.\n" +
                 "`!skip` or `" + skipEmoji + "` - Skips the currently playing track and plays the next one in the queue.\n" +
-                "`!forceskip` - Force skips the current track and moves to the next track in the queue.\n" +
                 "`!stop` or `" + stopEmoji + "` - Stops playback, clears the queue, and deletes all downloaded tracks.\n" +
                 "`!queue` or `" + queueEmoji + "` - Shows the current queue.\n" +
                 "`!help` - Shows this list of commands.";

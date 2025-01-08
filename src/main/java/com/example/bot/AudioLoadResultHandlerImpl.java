@@ -5,37 +5,38 @@ import com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler;
 import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 
 import java.io.File;
 
 public class AudioLoadResultHandlerImpl implements AudioLoadResultHandler {
+    private static final Logger logger = LoggerFactory.getLogger(AudioLoadResultHandlerImpl.class);
 
     private final AudioPlayer player;
     private final GuildMessageChannel messageChannel;
     private final TrackScheduler trackScheduler;
     private final File audioFile;
-    private final String trackTitle;  // Add a field for the track title
+    private final String trackTitle;
 
-    // Update the constructor to accept title
     public AudioLoadResultHandlerImpl(AudioPlayer player, GuildMessageChannel messageChannel, TrackScheduler trackScheduler, File audioFile, String trackTitle) {
         this.player = player;
         this.messageChannel = messageChannel;
         this.trackScheduler = trackScheduler;
         this.audioFile = audioFile;
-        this.trackTitle = trackTitle;  // Store the title
+        this.trackTitle = trackTitle;
     }
 
     @Override
     public void trackLoaded(AudioTrack track) {
         track.setUserData(audioFile.getAbsolutePath());
         trackScheduler.queue(track);
-
-        // Use the passed title to send the "Track loaded" message
-        messageChannel.sendMessage("Track loaded and ready: " + trackTitle).queue();
+        messageChannel.sendMessage("🎶 Now playing: " + trackTitle).queue();
+        logger.info("Track loaded: " + trackTitle + " | File path: " + audioFile.getAbsolutePath());
     }
-
-    // Other methods should be implemented here as needed
 
     @Override
     public void playlistLoaded(AudioPlaylist playlist) {
@@ -44,16 +45,19 @@ public class AudioLoadResultHandlerImpl implements AudioLoadResultHandler {
             trackLoaded(firstTrack);
         } else {
             messageChannel.sendMessage("Playlist is empty or no search results found.").queue();
+            logger.warn("Playlist is empty for the input.");
         }
     }
 
     @Override
     public void noMatches() {
         messageChannel.sendMessage("No matches found for the provided input.").queue();
+        logger.warn("No matches found for input.");
     }
 
     @Override
     public void loadFailed(FriendlyException exception) {
         messageChannel.sendMessage("Failed to load track: " + exception.getMessage()).queue();
+        logger.error("Failed to load track: " + exception.getMessage(), exception);
     }
 }

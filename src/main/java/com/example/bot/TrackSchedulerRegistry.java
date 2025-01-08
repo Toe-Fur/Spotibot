@@ -8,6 +8,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;  // For ConcurrentHashMap
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayer;  // For AudioPlayer
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class TrackSchedulerRegistry {
     private final AudioPlayerManager playerManager;

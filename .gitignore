@@ -3,3 +3,6 @@
 
 # Ignore everything in the downloads folder
 /downloads/
+
+# Ignore the Backups folder
+Backup.zip
