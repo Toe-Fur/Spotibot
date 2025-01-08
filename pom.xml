@@ -92,7 +92,7 @@
             </plugin>
 
             <!-- Plugin to run a batch script during the build process -->
-            <plugin>
+<!--             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-antrun-plugin</artifactId>
                 <version>3.0.0</version>
@@ -101,9 +101,9 @@
                         <id>run-create-config</id>
                         <phase>generate-resources</phase>
                         <configuration>
-                            <target>
+                            <target> -->
                                 <!-- Executes the batch script to generate a config file -->
-                                <exec executable="cmd">
+<!--                                 <exec executable="cmd">
                                     <arg value="/c"/>
                                     <arg value="create-config.bat"/>
                                 </exec>
@@ -114,7 +114,7 @@
                         </goals>
                     </execution>
                 </executions>
-            </plugin>
+            </plugin> -->
         </plugins>
     </build>
 </project>
