@@ -1,10 +1,7 @@
-# Ignore the specific config.json file
-/src/resources/config.json
-
 # Ignore everything in the downloads folder
 /downloads/
 
 # Ignore the Backups folder
 Backup.zip
 
-/bots/config.json
+config.json
