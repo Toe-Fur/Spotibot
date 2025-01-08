@@ -1,9 +1,11 @@
 # Ignore everything in the downloads folder
 /downloads/
 
+# Ignore the Maven target directory (build artifacts)
 /target/
 
-# Ignore the Backups folder
+# Ignore the Backups folder (zipped file)
 Backup.zip
 
+# Ignore the bot configuration file containing sensitive information
 config.json
