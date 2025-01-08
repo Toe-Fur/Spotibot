@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project name="maven-antrun-" default="main">
-  <target name="main">
-    <exec executable="cmd">
-      <arg value="/c" />
-      <arg value="create-config.bat" />
-    </exec>
-  </target>
-</project>
