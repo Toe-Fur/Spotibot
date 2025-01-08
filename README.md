@@ -72,13 +72,12 @@ The bot requires a `config.json` file in the `bots` directory. You can create th
 
 ## Troubleshooting
 If you encounter any issues:
-- Verify that **Chocolatey**, **Maven**, and **Java 17** are installed and added to your system's `PATH`.
+- Verify that **Maven**, and **Java 17** are installed and added to your system's `PATH`.
 - To ensure JDK 17 is used, specify the absolute path to the JDK as shown above.
 - Ensure that dependencies in the `pom.xml` file are properly declared.
 - Review project configuration settings in the `config.json` file.
 
 For further assistance, consult:
-- [Chocolatey Documentation](https://chocolatey.org/docs)
 - [Maven Documentation](https://maven.apache.org/)
 - [Spotibot Issues](https://github.com/your-username/your-repo/issues) (if applicable)
 
