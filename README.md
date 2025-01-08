@@ -9,45 +9,8 @@ Spotibot is a Java-based music bot that allows users to play and manage audio tr
 
 ## Requirements
 This project requires the following tools:
-- **Chocolatey** (Windows package manager)
 - **Maven** (build tool)
 - **Java 17 JDK** (Java Development Kit)
-
----
-
-## Installation Instructions
-
-### Step 1: Install Chocolatey
-1. Open **PowerShell** as Administrator.
-2. Run the following command to install Chocolatey:
-   ```powershell
-   Set-ExecutionPolicy Bypass -Scope Process -Force; `
-   [System.Net.ServicePointManager]::SecurityProtocol = `
-   [System.Net.ServicePointManager]::SecurityProtocol `
-   -bor 3072; iex ((New-Object `
-   System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
-   ```
-3. Close and reopen PowerShell to ensure Chocolatey is properly installed.
-
----
-
-### Step 2: Install Dependencies Using Chocolatey
-Run the following commands in PowerShell to install Maven and Java 17 JDK:
-```powershell
-choco install maven -y
-choco install openjdk17 -y
-```
-
----
-
-### Step 3: Verify Installation
-To ensure everything is set up correctly, verify Maven and Java installations by running:
-```powershell
-mvn -version
-java -version
-```
-
-You should see outputs confirming Maven and Java 17 JDK are installed.
 
 ---
 
@@ -106,19 +69,6 @@ The bot requires a `config.json` file in the `bots` directory. You can create th
 - Manage track scheduling and playlists
 - Built-in audio player handlers
 - Customizable configurations
-
----
-
-## Docker (Optional)
-If you prefer running Spotibot in a containerized environment:
-1. Build the Docker image:
-   ```bash
-   docker build -t spotibot .
-   ```
-2. Run the Docker container:
-   ```bash
-   docker run -d -p 8080:8080 spotibot
-   ```
 
 ---
 
