@@ -1,0 +1,5 @@
+# Ignore the specific config.json file
+/src/resources/config.json
+
+# Ignore everything in the downloads folder
+/downloads/
