@@ -77,6 +77,28 @@ For example, if you installed JDK 17 via Chocolatey:
 C:\ProgramData\chocolatey\lib\openjdk17\bin\java -jar target/spotibot-1.0-SNAPSHOT.jar
 ```
 
+## Configuration
+
+The bot requires a `config.json` file in the `bots` directory. You can create this file manually or use the provided script.
+
+### Example `config.json`
+```json
+{
+  "bot_token": "YOUR_BOT_TOKEN_HERE",
+  "status": "Playing music on Discord",
+  "default_volume": 60,
+  "queue_format": {
+    "now_playing": "🎶 **Now Playing:** {title}",
+    "queued": "📍 **{index}. {title}**"
+  },
+  "emojis": {
+    "skip": "⏩",
+    "stop": "⏹️",
+    "queue": "📝"
+  }
+}
+```
+
 ---
 
 ## Features

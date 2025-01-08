@@ -6,3 +6,5 @@
 
 # Ignore the Backups folder
 Backup.zip
+
+/bots/config.json

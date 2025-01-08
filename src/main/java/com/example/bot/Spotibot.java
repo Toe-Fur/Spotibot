@@ -74,10 +74,10 @@ public class Spotibot extends ListenerAdapter {
 
     private static void loadConfig() {
         try {
-            File configFile = new File("src/resources/config.json");
+            File configFile = new File("./bots/config.json"); // Updated path
 
             if (!configFile.exists()) {
-                logger.error("Config file not found. Please ensure the config.json file is in the target directory.");
+                logger.error("Config file not found. Please create ./bots/config.json and provide the necessary configuration.");
                 System.exit(1);
             }
 
