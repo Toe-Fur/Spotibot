@@ -96,6 +96,24 @@
             </plugin>
 
             <plugin>
+                  <groupId>org.apache.maven.plugins</groupId>
+                  <artifactId>maven-shade-plugin</artifactId>
+                  <version>3.4.1</version>
+                  <executions>
+                    <execution>
+                      <phase>package</phase>
+                      <goals>
+                        <goal>shade</goal>
+                      </goals>
+                      <configuration>
+                        <finalName>Spotibot</finalName>
+                        <createDependencyReducedPom>false</createDependencyReducedPom>
+                      </configuration>
+                    </execution>
+                  </executions>
+                </plugin>
+
+            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-antrun-plugin</artifactId>
                 <version>3.0.0</version>
