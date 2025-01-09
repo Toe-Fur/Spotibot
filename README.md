@@ -1,7 +1,5 @@
 ![image](https://github.com/user-attachments/assets/9af50704-e1d9-434a-9bcc-84197947c638)
 
-![image](https://github.com/user-attachments/assets/8ac13fd5-6e14-480a-bd65-da4c7a397490)
-
 # Spotibot
 
 Spotibot is a Java-based music bot that allows users to play and manage audio tracks seamlessly. This bot can be run locally or deployed on a server, providing a robust solution for music streaming and scheduling.
@@ -65,6 +63,8 @@ The bot requires a `config.json` file in the `bots` directory. You can create th
 }
 ```
 
+![image](https://github.com/user-attachments/assets/8ac13fd5-6e14-480a-bd65-da4c7a397490)
+
 
 ## Features
 - Play audio tracks from a variety of sources
@@ -89,3 +89,4 @@ For further assistance, consult:
 This project is licensed under the MIT License.
 
 For any questions or feature requests, feel free to contact the maintainers or open a GitHub issue.
+
