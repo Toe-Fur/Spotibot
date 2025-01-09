@@ -30,6 +30,7 @@
                   <mainClass>com.example.bot.Spotibot</mainClass>
                 </transformer>
               </transformers>
+              <finalName>Spotibot</finalName>
             </configuration>
           </execution>
         </executions>

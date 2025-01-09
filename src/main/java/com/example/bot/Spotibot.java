@@ -31,6 +31,12 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentHashMap;
 
+import java.util.List;
+import java.util.ArrayList;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
+
 public class Spotibot extends ListenerAdapter {
     private static final Logger logger = LoggerFactory.getLogger(Spotibot.class);
     private final AudioPlayerManager playerManager = new DefaultAudioPlayerManager();
@@ -85,7 +91,7 @@ public class Spotibot extends ListenerAdapter {
                         "  \"default_volume\": 60,\n" +
                         "  \"queue_format\": {\n" +
                         "    \"now_playing\": \"🎶 **Now Playing:** {title}\",\n" +
-                        "    \"queued\": \"📍 **{index}. {title}**\"\n" +
+                        "    \"queued\": \"📍 **{title}**\"\n" +
                         "  },\n" +
                         "  \"emojis\": {\n" +
                         "    \"skip\": \"⏩\",\n" +
@@ -165,91 +171,151 @@ public class Spotibot extends ListenerAdapter {
 
             downloadExecutor.submit(() -> {
                 try {
-                    String title = getYouTubeTitle(input);
-                    if (title != null) {
-                        LinkedBlockingQueue<String> queue = serverQueues.computeIfAbsent(guild.getIdLong(), k -> new LinkedBlockingQueue<>());
-                        LinkedBlockingQueue<String> titleQueue = serverTitles.computeIfAbsent(guild.getIdLong(), k -> new LinkedBlockingQueue<>());
-
-                        queue.offer(input);
-                        titleQueue.offer(title);
-
-                        currentlyPlayingTitles.put(guild.getIdLong(), title);
-                        messageChannel.sendMessage(queuedFormat.replace("{title}", title)).queue();
-
-                        File downloadedFile = downloadYouTubeAudio(input, serverFolder);
-                        if (downloadedFile != null) {
-                            playerManager.loadItem(downloadedFile.getAbsolutePath(), new AudioLoadResultHandlerImpl(trackScheduler.getPlayer(), messageChannel, trackScheduler, downloadedFile, title));
-                        } else {
-                            messageChannel.sendMessage("Download timed out. Skipping to the next track.").queue();
-                            trackScheduler.nextTrack();
-                        }
+                    if (isPlaylist(input)) {
+                        handlePlaylist(input, guild, messageChannel, trackScheduler, serverFolder);
+                    } else {
+                        handleSingleSong(input, guild, messageChannel, trackScheduler, serverFolder);
                     }
                 } catch (IOException | InterruptedException e) {
-                    messageChannel.sendMessage("Error while downloading audio: " + e.getMessage()).queue();
-                    e.printStackTrace();
+                    messageChannel.sendMessage("Error while processing your request: " + e.getMessage()).queue();
+                    logger.error("Error processing request for input: " + input, e);
                 }
             });
         } else if (message.equalsIgnoreCase("!skip") || message.equalsIgnoreCase(skipEmoji)) {
-            if (trackScheduler.getPlayer().getPlayingTrack() != null) {
-                trackScheduler.nextTrack(); // Skip to the next track
-                messageChannel.sendMessage(skipEmoji + " Skipped to the next track.").queue();
-
-                if (trackScheduler.isQueueEmpty()) {
-                    guild.getAudioManager().closeAudioConnection();
-                    messageChannel.sendMessage("No more tracks in the queue. Leaving the voice channel.").queue();
-                }
-            } else {
-                messageChannel.sendMessage("No track is currently playing to skip.").queue();
-            }
+            handleSkipCommand(guild, messageChannel, trackScheduler);
         } else if (message.equalsIgnoreCase("!stop") || message.equalsIgnoreCase(stopEmoji)) {
-            guild.getAudioManager().closeAudioConnection();
-            trackScheduler.clearQueueAndStop();
-            clearDownloadsFolder(serverFolder);
-
-            serverQueues.remove(guild.getIdLong());
-            serverTitles.remove(guild.getIdLong());
-
-            messageChannel.sendMessage(stopEmoji + " Stopped playback, cleared the queue, and deleted all downloads for this server.").queue();
+            handleStopCommand(guild, messageChannel, trackScheduler, serverFolder);
         } else if (message.equalsIgnoreCase("!queue") || message.equalsIgnoreCase(queueEmoji)) {
-            showQueue(event, serverFolder);
+            showQueue(event, trackScheduler);
         } else if (message.equalsIgnoreCase("!help")) {
             messageChannel.sendMessage(getHelpMessage()).queue();
         }
     }
 
-    private void showQueue(MessageReceivedEvent event, String serverFolder) {
-        File downloadFolder = new File(serverFolder);
-        if (downloadFolder.exists() && downloadFolder.isDirectory()) {
-            File[] files = downloadFolder.listFiles();
-            if (files != null && files.length > 0) {
-                Arrays.sort(files, Comparator.comparingLong(File::lastModified));
-                StringBuilder queueMessage = new StringBuilder("🎶 **Now Playing and Queue** 🎶\n");
-                int index = 1;
-                for (File file : files) {
-                    queueMessage.append(index++).append(". ").append(file.getName()).append("\n");
+    private void handlePlaylist(String input, Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler, String serverFolder) throws IOException, InterruptedException {
+        List<String> playlistTitles = getYouTubePlaylistTitles(input);
+        LinkedBlockingQueue<String> queue = serverQueues.computeIfAbsent(guild.getIdLong(), k -> new LinkedBlockingQueue<>());
+        LinkedBlockingQueue<String> titleQueue = serverTitles.computeIfAbsent(guild.getIdLong(), k -> new LinkedBlockingQueue<>());
+
+        queue.addAll(playlistTitles);
+        titleQueue.addAll(playlistTitles);
+
+        messageChannel.sendMessage("Playlist added to the queue. Songs will play as they are ready.").queue();
+
+        for (String song : playlistTitles) {
+            downloadExecutor.submit(() -> {
+                try {
+                    File downloadedFile = downloadYouTubeAudio(song, serverFolder);
+                    if (downloadedFile != null) {
+                        trackScheduler.queueSong(downloadedFile, song);
+                        messageChannel.sendMessage("Added to the queue: " + song).queue();
+                    } else {
+                        messageChannel.sendMessage("Failed to download: " + song).queue();
+                    }
+                } catch (Exception e) {
+                    logger.error("Error downloading song: " + song, e);
                 }
-                event.getChannel().sendMessage(queueMessage.toString()).queue();
+            });
+        }
+    }
+
+    private void handleSingleSong(String input, Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler, String serverFolder) throws IOException, InterruptedException {
+        String title = getYouTubeTitle(input);
+        if (title != null) {
+            LinkedBlockingQueue<String> queue = serverQueues.computeIfAbsent(guild.getIdLong(), k -> new LinkedBlockingQueue<>());
+            LinkedBlockingQueue<String> titleQueue = serverTitles.computeIfAbsent(guild.getIdLong(), k -> new LinkedBlockingQueue<>());
+
+            queue.offer(input);
+            titleQueue.offer(title);
+
+            currentlyPlayingTitles.put(guild.getIdLong(), title);
+
+            int index = queue.size();
+            String formattedMessage = queuedFormat.replace("{title}", title).replace("{index}", String.valueOf(index));
+            messageChannel.sendMessage(formattedMessage).queue();
+
+            File downloadedFile = downloadYouTubeAudio(input, serverFolder);
+            if (downloadedFile != null) {
+                trackScheduler.queueSong(downloadedFile, title);
             } else {
-                event.getChannel().sendMessage("The queue is empty.").queue();
+                messageChannel.sendMessage("Download timed out.").queue();
+            }
+        }
+    }
+
+    private void handleSkipCommand(Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler) {
+        if (trackScheduler.getPlayer().getPlayingTrack() != null) {
+            String currentTrackFileName = trackScheduler.getCurrentTrackFileName();
+            if (currentTrackFileName != null) {
+                logger.info("Currently playing track file: " + currentTrackFileName);
+            }
+            trackScheduler.nextTrack();
+            messageChannel.sendMessage(skipEmoji + " Skipped to the next track.").queue();
+
+            if (trackScheduler.isQueueEmpty()) {
+                guild.getAudioManager().closeAudioConnection();
+                messageChannel.sendMessage("No more tracks in the queue. Leaving the voice channel.").queue();
             }
         } else {
-            event.getChannel().sendMessage("The downloads folder does not exist for this server.").queue();
+            messageChannel.sendMessage("No track is currently playing to skip.").queue();
         }
     }
 
-    private File getCurrentTrackFile(String serverFolder) {
-        return new File(serverFolder + "current_track.mp3");
+    private void handleStopCommand(Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler, String serverFolder) {
+        guild.getAudioManager().closeAudioConnection();
+        trackScheduler.clearQueueAndStop();
+        clearDownloadsFolder(serverFolder);
+
+        serverQueues.remove(guild.getIdLong());
+        serverTitles.remove(guild.getIdLong());
+
+        messageChannel.sendMessage(stopEmoji + " Stopped playback and cleared the queue.").queue();
     }
 
-    private void clearDownloadsFolder(String serverFolder) {
-        File downloadFolder = new File(serverFolder);
-        if (downloadFolder.exists() && downloadFolder.isDirectory()) {
-            for (File file : downloadFolder.listFiles()) {
-                if (file.isFile()) {
-                    file.delete();
-                }
+    private boolean isPlaylist(String input) {
+        return input.contains("list="); // Simple check for YouTube playlist URLs
+    }
+
+    private List<String> getYouTubePlaylistTitles(String playlistUrl) throws IOException, InterruptedException {
+        List<String> titles = new ArrayList<>();
+        ProcessBuilder builder = new ProcessBuilder("yt-dlp", "--flat-playlist", "--get-title", playlistUrl);
+        builder.redirectErrorStream(true);
+        Process process = builder.start();
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                titles.add(line);
             }
         }
+
+        process.waitFor();
+        return titles;
+    }
+
+    private void showQueue(MessageReceivedEvent event, TrackScheduler trackScheduler) {
+        LinkedBlockingQueue<AudioTrack> playbackQueue = trackScheduler.getQueue();
+        StringBuilder queueMessage = new StringBuilder("🎶 **Now Playing and Queue** 🎶\n");
+
+        // Add the currently playing track
+        AudioTrack currentTrack = trackScheduler.getCurrentTrack();
+        if (currentTrack != null) {
+            queueMessage.append("🎵 Now Playing: ").append(currentTrack.getInfo().title).append("\n");
+        } else {
+            queueMessage.append("🎵 Now Playing: Nothing is currently playing.\n");
+        }
+
+        // Add upcoming tracks
+        int index = 1;
+        for (AudioTrack track : playbackQueue) {
+            queueMessage.append("📍 ").append(index++).append(". ").append(track.getInfo().title).append("\n");
+        }
+
+        if (playbackQueue.isEmpty()) {
+            queueMessage.append("The queue is empty.");
+        }
+
+        event.getChannel().sendMessage(queueMessage.toString()).queue();
     }
 
     private File downloadYouTubeAudio(String input, String serverFolder) throws IOException, InterruptedException {
@@ -266,11 +332,11 @@ public class Spotibot extends ListenerAdapter {
 
         String query = input.startsWith("http://") || input.startsWith("https://") ? input : "ytsearch:" + input;
 
-        ProcessBuilder downloadBuilder = new ProcessBuilder("yt-dlp", "-x", "--audio-format", "mp3", "--no-check-certificate", "-o", outputFilePath, query);
+        ProcessBuilder downloadBuilder = new ProcessBuilder("yt-dlp", "-x", "--audio-format", "mp3", "-o", outputFilePath, query);
         downloadBuilder.redirectErrorStream(true);
         Process downloadProcess = downloadBuilder.start();
 
-        boolean completedInTime = downloadProcess.waitFor(15, TimeUnit.SECONDS);
+        boolean completedInTime = downloadProcess.waitFor(60, TimeUnit.SECONDS); // Increase timeout for playlists
 
         if (!completedInTime) {
             downloadProcess.destroyForcibly();
@@ -293,6 +359,17 @@ public class Spotibot extends ListenerAdapter {
 
     private String sanitizeFileName(String input) {
         return input.replaceAll("[^a-zA-Z0-9_-]", "_");
+    }
+
+    private void clearDownloadsFolder(String serverFolder) {
+        File downloadFolder = new File(serverFolder);
+        if (downloadFolder.exists() && downloadFolder.isDirectory()) {
+            for (File file : downloadFolder.listFiles()) {
+                if (file.isFile()) {
+                    file.delete();
+                }
+            }
+        }
     }
 
     private String getHelpMessage() {

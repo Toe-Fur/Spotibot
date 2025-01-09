@@ -2,32 +2,26 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://www.w3.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     
-    <!-- Basic project information -->
     <groupId>com.example</groupId>
     <artifactId>spotibot</artifactId>
     <version>1.0-SNAPSHOT</version>
 
     <properties>
-        <!-- Specify Java version compatibility -->
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
-        <!-- Sets the encoding to UTF-8 -->
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.encoding>UTF-8</maven.compiler.encoding>
     </properties>
 
     <repositories>
-        <!-- Jitpack repository for external dependencies -->
         <repository>
             <id>jitpack.io</id>
             <url>https://jitpack.io</url>
         </repository>
-        <!-- Maven Central repository for standard dependencies -->
         <repository>
             <id>maven-central</id>
             <url>https://repo.maven.apache.org/maven2</url>
         </repository>
-        <!-- Repository for Discord JDA -->
         <repository>
             <id>dv8tion</id>
             <name>m2-dv8tion</name>
@@ -36,19 +30,16 @@
     </repositories>
 
     <dependencies>
-        <!-- Discord JDA for bot integration -->
         <dependency>
             <groupId>net.dv8tion</groupId>
             <artifactId>JDA</artifactId>
             <version>5.2.1</version>
         </dependency>
-        <!-- Lavaplayer for audio playback -->
         <dependency>
             <groupId>com.sedmelluq</groupId>
             <artifactId>lavaplayer</artifactId>
             <version>1.3.77</version>
         </dependency>
-        <!-- SLF4J for logging -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-simple</artifactId>
@@ -58,7 +49,6 @@
 
     <build>
         <plugins>
-            <!-- Plugin for Java compilation -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -69,7 +59,15 @@
                 </configuration>
             </plugin>
 
-            <!-- Plugin to create a single executable JAR -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.3.0</version>
+                <configuration>
+                    <finalName>spotibot-temp</finalName>
+                </configuration>
+            </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
@@ -81,15 +79,38 @@
                             <goal>shade</goal>
                         </goals>
                         <configuration>
-                            <!-- Reduces dependencies in the generated POM -->
-                            <createDependencyReducedPom>true</createDependencyReducedPom>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
                             <transformers>
-                                <!-- Specifies the main class for the executable JAR -->
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <mainClass>com.example.bot.Spotibot</mainClass>
                                 </transformer>
                             </transformers>
+                            <finalName>Spotibot</finalName>
                         </configuration>
+                    </execution>
+                </executions>
+                <configuration>
+                    <!-- Mark the shaded JAR as the primary artifact -->
+                    <shadedArtifactAttached>false</shadedArtifactAttached>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.0.0</version>
+                <executions>
+                    <execution>
+                        <!-- Delete the temp JAR after the install phase -->
+                        <phase>install</phase>
+                        <configuration>
+                            <target>
+                                <delete file="${project.build.directory}/spotibot-temp.jar" />
+                            </target>
+                        </configuration>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
                     </execution>
                 </executions>
             </plugin>

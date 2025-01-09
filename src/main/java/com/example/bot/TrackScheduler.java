@@ -1,6 +1,7 @@
 package com.example.bot;
 
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayer;
+import com.sedmelluq.discord.lavaplayer.player.AudioPlayerManager;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackEndReason;
 import org.slf4j.Logger;
@@ -10,10 +11,14 @@ import java.io.File;
 import java.util.concurrent.LinkedBlockingQueue;
 import net.dv8tion.jda.api.entities.Guild;
 
-// Handles track playback and queue management for a guild
+import com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler;
+import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
+import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
+
 public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.event.AudioEventListener {
     private static final Logger logger = LoggerFactory.getLogger(TrackScheduler.class);
 
+    private final AudioPlayerManager playerManager; // The audio player manager
     private final AudioPlayer player; // The audio player responsible for playback
     private final LinkedBlockingQueue<AudioTrack> queue; // Queue for managing tracks
     private AudioTrack currentTrack; // The track currently playing
@@ -21,7 +26,8 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
     private final Spotibot bot; // Reference to the main bot instance
 
     // Constructor to initialize the scheduler
-    public TrackScheduler(AudioPlayer player, Spotibot bot, Guild guild) {
+    public TrackScheduler(AudioPlayerManager playerManager, AudioPlayer player, Spotibot bot, Guild guild) {
+        this.playerManager = playerManager; // Initialize playerManager
         this.player = player;
         this.queue = new LinkedBlockingQueue<>();
         this.bot = bot;
@@ -45,20 +51,130 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
         }
     }
 
+    // Method to get the file name of the currently playing track
+    public String getCurrentTrackFileName() {
+        if (currentTrack != null) {
+            Object userData = currentTrack.getUserData();
+            if (userData instanceof String) {
+                String fileName = (String) userData;
+                logger.info("Current track file name: " + fileName);
+                return fileName;
+            } else {
+                logger.warn("Current track does not have a valid file name in user data.");
+                return null;
+            }
+        } else {
+            logger.warn("No track is currently playing.");
+            return null;
+        }
+    }
+
+    // Method to delete the file for the currently stored track file name
+    public boolean deleteTrackFileByName() {
+        if (currentTrack != null) {
+            Object userData = currentTrack.getUserData();
+            if (userData instanceof String) {
+                String fileName = (String) userData;
+                File file = new File(fileName);
+                if (file.exists() && file.isFile()) {
+                    if (file.delete()) {
+                        logger.info("Successfully deleted file: " + fileName);
+                        return true;
+                    } else {
+                        logger.error("Failed to delete file: " + fileName);
+                        return false;
+                    }
+                } else {
+                    logger.warn("File does not exist or is not a valid file: " + fileName);
+                    return false;
+                }
+            } else {
+                logger.warn("Current track does not have a valid file name in user data.");
+                return false;
+            }
+        } else {
+            logger.warn("No track is currently playing to delete.");
+            return false;
+        }
+    }
+
     // Plays the next track in the queue or stops playback if the queue is empty
     public void nextTrack() {
-        deleteCurrentTrackFile(); // Clean up the file for the current track
-        currentTrack = queue.poll(); // Fetch the next track from the queue
+        // Store the file name of the current track before moving to the next one
+        String previousTrackFileName = getCurrentTrackFileName();
+
+        // Fetch the next track from the queue
+        currentTrack = queue.poll();
 
         if (currentTrack != null) {
             // Play the next track
-            player.startTrack(currentTrack, false);
-            logger.info("Started next track: " + currentTrack.getInfo().title);
+            boolean trackStarted = player.startTrack(currentTrack, false);
+
+            if (trackStarted) {
+                logger.info("Started next track: " + currentTrack.getInfo().title);
+            } else {
+                logger.warn("Failed to start the next track: " + currentTrack.getInfo().title);
+            }
+
+            // Now delete the file for the previous track (after playback has started)
+            if (previousTrackFileName != null) {
+                deleteFile(previousTrackFileName);
+            }
         } else {
             // Stop playback if the queue is empty
             logger.info("Queue is empty. Stopping playback.");
             player.stopTrack();
+            leaveVoiceChannel(); // Disconnect from the voice channel
+
+            // Clean up the file for the previous track
+            if (previousTrackFileName != null) {
+                deleteFile(previousTrackFileName);
+            }
         }
+    }
+
+    // Helper method to delete a file
+    private void deleteFile(String fileName) {
+        File file = new File(fileName);
+        if (file.exists() && file.isFile()) {
+            if (file.delete()) {
+                logger.info("Successfully deleted file: " + fileName);
+            } else {
+                logger.error("Failed to delete file: " + fileName);
+            }
+        } else {
+            logger.warn("File does not exist or is not a valid file: " + fileName);
+        }
+    }
+
+    public void queueSong(File file, String title) {
+        playerManager.loadItem(file.getAbsolutePath(), new AudioLoadResultHandler() {
+            @Override
+            public void trackLoaded(AudioTrack track) {
+                if (player.getPlayingTrack() == null) {
+                    player.startTrack(track, false);
+                    logger.info("Started playing: " + title);
+                } else {
+                    queue.offer(track);
+                    logger.info("Queued track: " + title);
+                }
+            }
+
+            @Override
+            public void playlistLoaded(AudioPlaylist playlist) {
+                logger.warn("Unexpected playlist loaded in queueSong: " + playlist.getName());
+            }
+
+            @Override
+            public void noMatches() {
+                logger.warn("No matches found for file: " + file.getAbsolutePath());
+            }
+
+            @Override
+            public void loadFailed(FriendlyException exception) {
+                logger.error("Failed to load track: " + title, exception);
+            }
+        });
     }
 
     // Checks if the queue is empty and no track is currently playing
@@ -88,6 +204,14 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
                 }
             }
         }
+    }
+
+    public LinkedBlockingQueue<AudioTrack> getQueue() {
+        return queue; // Expose the playback queue
+    }
+
+    public AudioTrack getCurrentTrack() {
+        return currentTrack; // Expose the currently playing track
     }
 
     // Clears the queue, stops playback, and leaves the voice channel

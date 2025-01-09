@@ -26,12 +26,8 @@ public class TrackSchedulerRegistry {
      */
     public TrackScheduler getOrCreate(Guild guild, Spotibot bot, AudioPlayer player) {
         // Check if a scheduler already exists for the guild
-        TrackScheduler trackScheduler = trackSchedulers.get(guild.getIdLong());
-        if (trackScheduler == null) {
-            // Create a new scheduler if one doesn't exist
-            trackScheduler = new TrackScheduler(player, bot, guild);
-            trackSchedulers.put(guild.getIdLong(), trackScheduler);
-        }
-        return trackScheduler;
+        return trackSchedulers.computeIfAbsent(guild.getIdLong(), guildId ->
+            new TrackScheduler(playerManager, player, bot, guild) // Create a new scheduler
+        );
     }
 }
