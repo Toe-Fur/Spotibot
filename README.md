@@ -1,3 +1,4 @@
+![image](https://github.com/user-attachments/assets/9af50704-e1d9-434a-9bcc-84197947c638)
 
 # Spotibot
 
@@ -62,6 +63,8 @@ The bot requires a `config.json` file in the `bots` directory. You can create th
 }
 ```
 
+![image](https://github.com/user-attachments/assets/8ac13fd5-6e14-480a-bd65-da4c7a397490)
+
 
 ## Features
 - Play audio tracks from a variety of sources
@@ -86,3 +89,4 @@ For further assistance, consult:
 This project is licensed under the MIT License.
 
 For any questions or feature requests, feel free to contact the maintainers or open a GitHub issue.
+
