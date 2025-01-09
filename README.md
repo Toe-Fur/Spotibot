@@ -1,3 +1,6 @@
+![image](https://github.com/user-attachments/assets/9af50704-e1d9-434a-9bcc-84197947c638)
+
+![image](https://github.com/user-attachments/assets/8ac13fd5-6e14-480a-bd65-da4c7a397490)
 
 # Spotibot
 
