@@ -66,25 +66,6 @@ The bot requires a `config.json` file in the `bots` directory. You can create th
 ![image](https://github.com/user-attachments/assets/8ac13fd5-6e14-480a-bd65-da4c7a397490)
 
 
-## Docker 
-Clone the repo and build the docker container.
-```
-docker build -t spotibot .
-```
-
-```
-docker run -e BOT_TOKEN="Bot Token" \
-           -e STATUS="Streaming tunes" \
-           -e DEFAULT_VOLUME=75 \
-           -e NOW_PLAYING="🎵 **Playing Now:** {title}" \
-           -e QUEUED="🎧 **{index}. {title}**" \
-           -e SKIP_EMOJI="⏭" \
-           -e STOP_EMOJI="⏹" \
-           -e QUEUE_EMOJI="🗒" \
-           -d spotibot
-
-```
-
 ## Features
 - Play audio tracks from a variety of sources
 - Manage track scheduling and playlists

@@ -1,33 +1,27 @@
-# Use the official Maven image to build the project
-FROM maven:3.9.5-eclipse-temurin-17 as builder
+# Use Maven image to build the project
+FROM maven:3.8.7-openjdk-18-slim AS builder
 
-# Set the working directory inside the container
+# Set working directory
 WORKDIR /app
 
-# Copy the Maven project files
+# Copy pom.xml and source code
 COPY pom.xml .
 COPY src ./src
 
-# Run Maven package to build the project
+# Build the project
 RUN mvn clean package -DskipTests
 
-# Use a lightweight JRE image to run the application
-FROM eclipse-temurin:17-jre
+# Use a lightweight JRE image for the runtime
+FROM openjdk:17-jdk-slim
 
-# Set the working directory for the runtime container
+# Set working directory
 WORKDIR /app
 
-# Copy the built JAR from the builder stage
-COPY --from=builder /app/target/Spotibot.jar Spotibot.jar
+# Copy the jar file from the builder stage
+COPY --from=builder /app/target/*.jar app.jar
 
-# Add the entrypoint script
-COPY entrypoint.sh /app/entrypoint.sh
-
-# Make the script executable
-RUN chmod +x /app/entrypoint.sh
-
-# Expose the port your application uses, if needed
+# Expose the application port
 EXPOSE 8080
 
-# Set the entrypoint to the shell script
-ENTRYPOINT ["/app/entrypoint.sh"]
+# Command to run the application
+CMD ["java", "-jar", "app.jar"]

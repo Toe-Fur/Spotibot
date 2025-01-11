@@ -20,21 +20,9 @@ import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.ConcurrentHashMap;
-
-import java.util.List;
-import java.util.ArrayList;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
+import java.io.*;
+import java.util.*;
+import java.util.concurrent.*;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 
 public class Spotibot extends ListenerAdapter {
@@ -98,7 +86,7 @@ public class Spotibot extends ListenerAdapter {
                         "    \"stop\": \"⏹️\",\n" +
                         "    \"queue\": \"📝\"\n" +
                         "  }\n" +
-                        "}\n");
+                        "}");
                 System.out.println("Created default config.json file in the current directory.");
             } catch (IOException e) {
                 System.err.println("Failed to create config.json: " + e.getMessage());
@@ -144,7 +132,6 @@ public class Spotibot extends ListenerAdapter {
     public Spotibot() {
         AudioSourceManagers.registerRemoteSources(playerManager);
         AudioSourceManagers.registerLocalSource(playerManager);
-        playerManager.registerSourceManager(new InputStreamAudioSourceManager());
         trackSchedulerRegistry = new TrackSchedulerRegistry(playerManager);
     }
 
@@ -185,7 +172,7 @@ public class Spotibot extends ListenerAdapter {
         } else if (message.equalsIgnoreCase("!skip") || message.equalsIgnoreCase(skipEmoji)) {
             handleSkipCommand(guild, messageChannel, trackScheduler);
         } else if (message.equalsIgnoreCase("!stop") || message.equalsIgnoreCase(stopEmoji)) {
-            handleStopCommand(guild, messageChannel, trackScheduler);
+            handleStopCommand(guild, messageChannel, trackScheduler, serverFolder);
         } else if (message.equalsIgnoreCase("!queue") || message.equalsIgnoreCase(queueEmoji)) {
             showQueue(event, trackScheduler);
         } else if (message.equalsIgnoreCase("!help")) {
@@ -221,29 +208,21 @@ public class Spotibot extends ListenerAdapter {
     }
 
     private void handleSingleSong(String input, Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler, String serverFolder) throws IOException, InterruptedException {
-        // Get the title of the YouTube video
         String title = getYouTubeTitle(input);
         if (title != null) {
-            // Get or create queues for the server
             LinkedBlockingQueue<String> queue = serverQueues.computeIfAbsent(guild.getIdLong(), k -> new LinkedBlockingQueue<>());
             LinkedBlockingQueue<String> titleQueue = serverTitles.computeIfAbsent(guild.getIdLong(), k -> new LinkedBlockingQueue<>());
 
-            // Add the input and title to their respective queues
             queue.offer(input);
             titleQueue.offer(title);
 
-            // Update the currently playing title
             currentlyPlayingTitles.put(guild.getIdLong(), title);
 
-            // Send a formatted message about the queued track
             int index = queue.size();
             String formattedMessage = queuedFormat.replace("{title}", title).replace("{index}", String.valueOf(index));
             messageChannel.sendMessage(formattedMessage).queue();
 
-            // Download the YouTube audio
             File downloadedFile = downloadYouTubeAudio(input, serverFolder);
-
-            // Queue the track or notify of a timeout
             if (downloadedFile != null) {
                 trackScheduler.queueSong(downloadedFile, title);
             } else {
@@ -262,23 +241,15 @@ public class Spotibot extends ListenerAdapter {
             messageChannel.sendMessage(skipEmoji + " Skipped to the next track.").queue();
 
             if (trackScheduler.isQueueEmpty()) {
+                guild.getAudioManager().closeAudioConnection();
                 messageChannel.sendMessage("No more tracks in the queue. Leaving the voice channel.").queue();
-
-                // Call handleStopCommand
-                handleStopCommand(guild, messageChannel, trackScheduler);
             }
         } else {
             messageChannel.sendMessage("No track is currently playing to skip.").queue();
-
-            // Call handleStopCommand
-            handleStopCommand(guild, messageChannel, trackScheduler);
         }
     }
 
-
-    public void handleStopCommand(Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler) {
-        String serverFolder = BASE_DOWNLOAD_FOLDER + guild.getId() + "/";
-
+    private void handleStopCommand(Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler, String serverFolder) {
         guild.getAudioManager().closeAudioConnection();
         trackScheduler.clearQueueAndStop();
         clearDownloadsFolder(serverFolder);
@@ -340,7 +311,7 @@ public class Spotibot extends ListenerAdapter {
         if (title == null) return null;
 
         String sanitizedTitle = sanitizeFileName(title);
-        String outputFilePath = serverFolder + sanitizedTitle + ".mp3"; // Save as .mp3 file
+        String outputFilePath = serverFolder + sanitizedTitle + ".mp3";
 
         File downloadsDir = new File(serverFolder);
         if (!downloadsDir.exists()) {
@@ -349,27 +320,28 @@ public class Spotibot extends ListenerAdapter {
 
         String query = input.startsWith("http://") || input.startsWith("https://") ? input : "ytsearch:" + input;
 
-        ProcessBuilder downloadBuilder = new ProcessBuilder(
-                "yt-dlp", 
-                "-f", "bestaudio", 
-                "--audio-format", "mp3", 
-                "--no-part",  // Avoid .part files
-                "-o", outputFilePath, 
-                query
-        );
+        ProcessBuilder downloadBuilder = new ProcessBuilder("yt-dlp", "-x", "--audio-format", "mp3", "-o", outputFilePath, query);
         downloadBuilder.redirectErrorStream(true);
         Process downloadProcess = downloadBuilder.start();
 
-        boolean completedInTime = downloadProcess.waitFor(60, TimeUnit.SECONDS);
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(downloadProcess.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                logger.info(line);
+            }
+        }
+
+        boolean completedInTime = downloadProcess.waitFor(120, TimeUnit.SECONDS); // Increase timeout for playlists
 
         if (!completedInTime) {
             downloadProcess.destroyForcibly();
+            logger.error("Download process timed out.");
             return null;
         }
 
         File downloadedFile = new File(outputFilePath);
         if (!downloadedFile.exists()) {
-            logger.error("Download failed: File not found at " + outputFilePath);
+            logger.error("File not found after download: " + outputFilePath);
             return null;
         }
 
@@ -382,9 +354,11 @@ public class Spotibot extends ListenerAdapter {
         ProcessBuilder builder = new ProcessBuilder("yt-dlp", "--get-title", query);
         builder.redirectErrorStream(true);
         Process metadataProcess = builder.start();
-        String title = new String(metadataProcess.getInputStream().readAllBytes()).trim();
 
-        return title.isEmpty() ? null : title;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(metadataProcess.getInputStream()))) {
+            String title = reader.readLine();
+            return title != null ? title.trim() : null;
+        }
     }
 
     private String sanitizeFileName(String input) {

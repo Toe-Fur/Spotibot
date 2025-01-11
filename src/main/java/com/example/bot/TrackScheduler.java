@@ -14,9 +14,6 @@ import net.dv8tion.jda.api.entities.Guild;
 import com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler;
 import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
-import java.io.FileOutputStream;
-
-import java.io.InputStream;
 
 public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.event.AudioEventListener {
     private static final Logger logger = LoggerFactory.getLogger(TrackScheduler.class);
@@ -151,19 +148,9 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
     }
 
     public void queueSong(File file, String title) {
-        if (!file.exists() || (!file.getName().endsWith(".mp3") && !file.getName().endsWith(".webm") && !file.getName().endsWith(".mp3"))) {
-            logger.error("Unsupported file format or file does not exist: " + file.getAbsolutePath());
-            return;
-        }
-
-        logger.info("Attempting to load file: " + file.getAbsolutePath());
-
         playerManager.loadItem(file.getAbsolutePath(), new AudioLoadResultHandler() {
             @Override
             public void trackLoaded(AudioTrack track) {
-                logger.info("Track loaded successfully: " + title);
-                track.setUserData(file.getAbsolutePath());
-
                 if (player.getPlayingTrack() == null) {
                     player.startTrack(track, false);
                     logger.info("Started playing: " + title);
@@ -175,12 +162,12 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
 
             @Override
             public void playlistLoaded(AudioPlaylist playlist) {
-                logger.warn("Unexpected playlist loaded: " + playlist.getName());
+                logger.warn("Unexpected playlist loaded in queueSong: " + playlist.getName());
             }
 
             @Override
             public void noMatches() {
-                logger.error("No matches found for file: " + file.getAbsolutePath());
+                logger.warn("No matches found for file: " + file.getAbsolutePath());
             }
 
             @Override
@@ -190,49 +177,17 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
         });
     }
 
-    // Delete the file for the current track after playback ends
-    private void deleteCurrentTrackFile() {
-        if (currentTrack != null) {
-            Object userData = currentTrack.getUserData();
-            if (userData instanceof String) {
-                String filePath = (String) userData;
-                File file = new File(filePath);
-                if (file.exists() && file.isFile()) {
-                    if (file.delete()) {
-                        logger.info("Deleted track file: " + filePath);
-                    } else {
-                        logger.error("Failed to delete track file: " + filePath);
-                    }
-                }
-            }
-            currentTrack = null;
-        }
-    }
-
-    public void queueStream(InputStream stream, String title) {
-        try {
-            // Save the stream to a temporary file
-            File tempFile = File.createTempFile("stream_", ".mp3");
-            tempFile.deleteOnExit(); // Ensure cleanup on JVM exit
-            try (FileOutputStream outputStream = new FileOutputStream(tempFile)) {
-                byte[] buffer = new byte[8192];
-                int bytesRead;
-                while ((bytesRead = stream.read(buffer)) != -1) {
-                    outputStream.write(buffer, 0, bytesRead);
-                }
-            }
-
-            // Queue the track using the temporary file
-            queueSong(tempFile, title);
-            logger.info("Stream queued successfully: " + title);
-        } catch (Exception e) {
-            logger.error("Failed to process stream for: " + title, e);
-        }
-    }
-
     // Checks if the queue is empty and no track is currently playing
     public boolean isQueueEmpty() {
         return queue.isEmpty() && currentTrack == null;
+    }
+
+    // Deletes the file for the current track
+    private void deleteCurrentTrackFile() {
+        if (currentTrack != null) {
+            deleteTrackFile(currentTrack);
+            currentTrack = null;
+        }
     }
 
     // Deletes the file associated with a specific track
