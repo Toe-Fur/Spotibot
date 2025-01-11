@@ -41,13 +41,18 @@ public class AudioLoadResultHandlerImpl implements AudioLoadResultHandler {
     @Override
     public void trackLoaded(AudioTrack track) {
         // Attach the file path as user data to the track
-        track.setUserData(audioFile.getAbsolutePath());
+        if (audioFile != null) {
+            track.setUserData(audioFile.getAbsolutePath());
+        }
+
         // Queue the track for playback
         trackScheduler.queue(track);
+
         // Notify the user that the track is now playing
         messageChannel.sendMessage("🎶 Now playing: " + trackTitle).queue();
+
         // Log the loaded track info
-        logger.info("Track loaded: " + trackTitle + " | File path: " + audioFile.getAbsolutePath());
+        logger.info("Track loaded: " + trackTitle + (audioFile != null ? " | File path: " + audioFile.getAbsolutePath() : ""));
     }
 
     // Handles loading a playlist
