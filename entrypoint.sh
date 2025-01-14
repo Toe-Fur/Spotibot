@@ -11,7 +11,7 @@ STOP_EMOJI="${STOP_EMOJI:-⏹️}"
 QUEUE_EMOJI="${QUEUE_EMOJI:-📝}"
 
 # Generate the config.json file
-cat <<EOF > config.json
+cat <<EOF > /config/config.json
 {
   "bot_token": "${BOT_TOKEN}",
   "status": "${STATUS}",
