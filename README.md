@@ -81,6 +81,18 @@ If you encounter any issues:
 - Ensure that dependencies in the `pom.xml` file are properly declared.
 - Review project configuration settings in the `config.json` file.
 
+## Docker Run
+'''
+docker run -e BOT_TOKEN="your discord token" \
+           -e STATUS="Streaming tunes" \
+           -e DEFAULT_VOLUME=75 \
+           -e NOW_PLAYING="🎵 **Playing Now:** {title}" \
+           -e QUEUED="🎧 **{index}. {title}**" \
+           -e SKIP_EMOJI="⏭" \
+           -e STOP_EMOJI="⏹" \
+           -e QUEUE_EMOJI="🗒" \
+           ghcr.io/toe-fur/spotibot:beta
+
 For further assistance, consult:
 - [Maven Documentation](https://maven.apache.org/)
 - [Spotibot Issues](https://github.com/your-username/your-repo/issues) (if applicable)
