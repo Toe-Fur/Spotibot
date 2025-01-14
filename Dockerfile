@@ -26,11 +26,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy the jar file from the builder stage
-COPY --from=builder /app/target/*.jar app.jar
+# Copy the JAR file from the builder stage
+COPY --from=builder /app/target/Spotibot.jar app.jar
 
-# Expose the application port
-EXPOSE 8080
 
 # Command to run the application
 CMD ["java", "-jar", "app.jar"]
