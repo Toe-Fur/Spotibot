@@ -12,6 +12,7 @@ Spotibot is a Java-based music bot that allows users to play and manage audio tr
 This project requires the following tools:
 - **Maven** (build tool)
 - **Java 17 JDK** (Java Development Kit)
+- **YT-DLP**
 
 
 
