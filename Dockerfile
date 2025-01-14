@@ -17,11 +17,18 @@ FROM openjdk:17-jdk-slim
 # Set working directory
 WORKDIR /app
 
-# Copy the jar file from the builder stage
-COPY --from=builder /app/target/*.jar app.jar
+# Install yt-dlp and required dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    python3 \
+    python3-pip && \
+    pip3 install yt-dlp && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-# Expose the application port
-EXPOSE 8080
+# Copy the JAR file from the builder stage
+COPY --from=builder /app/target/Spotibot.jar app.jar
+
 
 # Command to run the application
 CMD ["java", "-jar", "app.jar"]

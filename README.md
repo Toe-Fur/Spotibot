@@ -12,6 +12,7 @@ Spotibot is a Java-based music bot that allows users to play and manage audio tr
 This project requires the following tools:
 - **Maven** (build tool)
 - **Java 17 JDK** (Java Development Kit)
+- **YT-DLP**
 
 
 
@@ -79,6 +80,18 @@ If you encounter any issues:
 - To ensure JDK 17 is used, specify the absolute path to the JDK as shown above.
 - Ensure that dependencies in the `pom.xml` file are properly declared.
 - Review project configuration settings in the `config.json` file.
+
+## Docker Run
+'''
+docker run -e BOT_TOKEN="your discord token" \
+           -e STATUS="Streaming tunes" \
+           -e DEFAULT_VOLUME=75 \
+           -e NOW_PLAYING="🎵 **Playing Now:** {title}" \
+           -e QUEUED="🎧 **{index}. {title}**" \
+           -e SKIP_EMOJI="⏭" \
+           -e STOP_EMOJI="⏹" \
+           -e QUEUE_EMOJI="🗒" \
+           ghcr.io/toe-fur/spotibot:beta
 
 For further assistance, consult:
 - [Maven Documentation](https://maven.apache.org/)
