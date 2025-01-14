@@ -92,6 +92,12 @@ docker run -e BOT_TOKEN="your discord token" \
            -e STOP_EMOJI="⏹" \
            -e QUEUE_EMOJI="🗒" \
            ghcr.io/toe-fur/spotibot:beta
+## Authentication 
+- Export your YouTube cookies using a browser extension (e.g., EditThisCookie).
+- Save the cookies as a cookies.txt file.
+- Place the cookies.txt file in the same folder as the config.json
+- Run the bot. Spotibot will automatically use your cookies for YouTube requests.
+
 
 For further assistance, consult:
 - [Maven Documentation](https://maven.apache.org/)
