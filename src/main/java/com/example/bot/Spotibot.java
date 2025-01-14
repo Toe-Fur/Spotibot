@@ -23,7 +23,7 @@ import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 public class Spotibot extends ListenerAdapter {
     private static final Logger logger = LoggerFactory.getLogger(Spotibot.class);
     private final AudioPlayerManager playerManager = new DefaultAudioPlayerManager();
-    private final ExecutorService downloadExecutor = Executors.newCachedThreadPool();
+    private ExecutorService downloadExecutor = Executors.newCachedThreadPool();
     private final BlockingQueue<Runnable> downloadQueue = new LinkedBlockingQueue<>();
     private Future<?> currentDownloadTask;
     private TrackSchedulerRegistry trackSchedulerRegistry;
@@ -168,8 +168,9 @@ public class Spotibot extends ListenerAdapter {
                     downloadQueue.offer(() -> {
                         try {
                             String query = "ytsearch:" + song;
-                            String outputFilePath = serverFolder + sanitizeFileName(song) + ".webm";
-                            downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel);
+                            String sanitizedSongName = sanitizeFileName(song); // Sanitize the song name
+                            String outputFilePath = serverFolder + sanitizedSongName + ".webm";
+                            downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel); // Pass the correct arguments
                         } catch (IOException | InterruptedException e) {
                             messageChannel.sendMessage("Error downloading song: " + e.getMessage()).queue();
                             logger.error("Error downloading song: " + song, e);
@@ -179,19 +180,21 @@ public class Spotibot extends ListenerAdapter {
             } else {
                 downloadQueue.offer(() -> {
                     try {
-                        String outputFilePath = serverFolder + sanitizeFileName(input) + ".webm";
-                        downloadAndQueueSong(input, outputFilePath, trackScheduler, messageChannel);
+                        String query = "ytsearch:" + input;
+                        String sanitizedSongName = sanitizeFileName(input); // Sanitize the input
+                        String outputFilePath = serverFolder + sanitizedSongName + ".webm";
+                        downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel); // Pass the correct arguments
                     } catch (IOException | InterruptedException e) {
                         messageChannel.sendMessage("Error downloading song: " + e.getMessage()).queue();
                         logger.error("Error downloading song: " + input, e);
                     }
                 });
             }
-        } else if (message.equalsIgnoreCase("!skip") || message.equalsIgnoreCase(skipEmoji)) {
+        } else if (message.equalsIgnoreCase("!skip")) {
             handleSkipCommand(guild, messageChannel, trackScheduler);
-        } else if (message.equalsIgnoreCase("!stop") || message.equalsIgnoreCase(stopEmoji)) {
+        } else if (message.equalsIgnoreCase("!stop")) {
             handleStopCommand(guild, messageChannel, trackScheduler, serverFolder);
-        } else if (message.equalsIgnoreCase("!queue") || message.equalsIgnoreCase(queueEmoji)) {
+        } else if (message.equalsIgnoreCase("!queue")) {
             showQueue(event, trackScheduler);
         } else if (message.equalsIgnoreCase("!help")) {
             messageChannel.sendMessage(getHelpMessage()).queue();
@@ -209,17 +212,16 @@ public class Spotibot extends ListenerAdapter {
 
     private void startDownloadQueueProcessor() {
         downloadExecutor.submit(() -> {
-            while (true) {
+            // Line: Replace while(true) in startDownloadQueueProcessor
+            while (!Thread.currentThread().isInterrupted()) {
                 try {
                     Runnable downloadTask = downloadQueue.take();
                     currentDownloadTask = downloadExecutor.submit(downloadTask);
-                    currentDownloadTask.get(); // Wait for the task to complete
+                    currentDownloadTask.get();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
+                    logger.info("Download queue processor interrupted; shutting down...");
                     break;
-                } catch (CancellationException e) {
-                    logger.info("Download task was cancelled.");
-                    break; // Exit the loop if a task is cancelled
                 } catch (Exception e) {
                     logger.error("Error processing download task", e);
                 }
@@ -228,21 +230,51 @@ public class Spotibot extends ListenerAdapter {
     }
 
     private void handleStopCommand(Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler, String serverFolder) {
+        // Line: Add at the start of handleStopCommand
+        logger.info("Stopping bot and clearing all states...");
+
+        // Clear the queue and stop playback
         trackScheduler.clearQueueAndStop();
+        
+        // Close the audio connection
         guild.getAudioManager().closeAudioConnection();
         
-        // Cancel the current download task
-        if (currentDownloadTask != null) {
+        // Clear the downloads folder
+        clearDownloadsFolder(serverFolder);
+        
+        // Cancel the current download task if any
+        if (currentDownloadTask != null && !currentDownloadTask.isDone()) {
             currentDownloadTask.cancel(true);
+            try {
+                currentDownloadTask.get(); // Wait for cancellation
+            } catch (CancellationException | InterruptedException | ExecutionException e) {
+                logger.info("Handled cancellation exception: " + e.getMessage());
+            }
             currentDownloadTask = null;
         }
+
+        downloadExecutor.shutdownNow(); // Interrupt running tasks
+        try {
+            if (!downloadExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                logger.warn("Executor did not terminate in time; forcing shutdown...");
+                downloadExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            logger.error("Executor shutdown interrupted", e);
+        }
+
+        // Restart executor service after stopping
+        downloadExecutor = Executors.newCachedThreadPool();
+        startDownloadQueueProcessor();
 
         // Clear the download queue
         downloadQueue.clear();
 
-        messageChannel.sendMessage(stopEmoji + " Stopped playback and cleared the queue.").queue();
-
-        clearDownloadsFolder(serverFolder);
+        // Line: Add after clearing the downloadQueue
+        trackSchedulerRegistry.reset();
+        
+        // Send a message to confirm the bot state has been reset
+        messageChannel.sendMessage(stopEmoji + " Stopped playback and reset the bot state. You can now add new songs.").queue();
     }
 
     private List<String> getYouTubePlaylistTitles(String playlistUrl) throws IOException, InterruptedException {
@@ -294,7 +326,8 @@ public class Spotibot extends ListenerAdapter {
         File downloadedFile = new File(outputFilePath);
         if (downloadedFile.exists()) {
             trackScheduler.queueSong(downloadedFile, title); // Use the title directly
-            messageChannel.sendMessage(String.format("📍 **Queued:** `%s`", title)).queue();
+            String displayTitle = title.replace("ytsearch:", "").trim(); // Remove ytsearch prefix
+            messageChannel.sendMessage(String.format("📍 **Queued:** `%s`", displayTitle)).queue();
         } else {
             messageChannel.sendMessage("Failed to download song: " + query).queue();
         }
@@ -304,19 +337,15 @@ public class Spotibot extends ListenerAdapter {
         LinkedBlockingQueue<AudioTrack> playbackQueue = trackScheduler.getQueue();
         StringBuilder queueMessage = new StringBuilder("🎶 **Now Playing and Queue** 🎶\n");
 
-        // Add the currently playing track
         AudioTrack currentTrack = trackScheduler.getCurrentTrack();
         if (currentTrack != null) {
-            String title = trackScheduler.getTitle(currentTrack.getIdentifier()); // Fetch the title
+            String title = trackScheduler.getTitle(currentTrack.getIdentifier()).replace("ytsearch:", "").trim();
             queueMessage.append("🎵 Now Playing: ").append(title != null ? title : "Unknown Title").append("\n");
-        } else {
-            queueMessage.append("🎵 Nothing is currently playing.").append("\n");
         }
 
-        // Add upcoming tracks
         int index = 1;
         for (AudioTrack track : playbackQueue) {
-            String title = trackScheduler.getTitle(track.getIdentifier()); // Fetch the title
+            String title = trackScheduler.getTitle(track.getIdentifier()).replace("ytsearch:", "").trim();
             queueMessage.append("📍 ").append(index++).append(". ").append(title != null ? title : "Unknown Title").append("\n");
         }
 

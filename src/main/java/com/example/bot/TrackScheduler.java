@@ -153,7 +153,7 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
             public void trackLoaded(AudioTrack track) {
                 track.setUserData(file.getAbsolutePath()); // Attach the file path for each track
                 queue(track); // Queue the track
-                trackTitles.put(track.getIdentifier(), title); // Store the title with the track ID
+                trackTitles.put(track.getIdentifier(), title.replace("ytsearch:", "").trim());
                 logger.info("Loaded and queued track: " + title);
             }
 
@@ -217,11 +217,17 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
 
     // Clears the queue, stops playback, and leaves the voice channel
     public void clearQueueAndStop() {
-        deleteCurrentTrackFile(); // Clean up the current track
-        queue.forEach(this::deleteTrackFile); // Delete all queued tracks
-        queue.clear(); // Clear the queue
-        player.stopTrack(); // Stop the player
-        leaveVoiceChannel(); // Disconnect from the voice channel
+        // Stop the current track
+        player.stopTrack();
+        
+        // Clear the playback queue
+        queue.clear();
+        
+        // Reset the current track
+        currentTrack = null;
+        
+        // Perform any other necessary cleanup
+        leaveVoiceChannel();
     }
 
     // Disconnects the bot from the guild's voice channel

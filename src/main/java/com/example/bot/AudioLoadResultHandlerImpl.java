@@ -45,7 +45,7 @@ public class AudioLoadResultHandlerImpl implements AudioLoadResultHandler {
         // Queue the track for playback
         trackScheduler.queue(track);
         // Notify the user that the track is now playing
-        messageChannel.sendMessage("🎶 Now playing: (Title).").queue();
+        messageChannel.sendMessage("🎶 Now playing: " + trackTitle.replace("ytsearch:", "").trim()).queue();
         // Log the loaded track info
         logger.info("Track loaded: " + trackTitle + " | File path: " + audioFile.getAbsolutePath());
     }

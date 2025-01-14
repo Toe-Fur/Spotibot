@@ -16,6 +16,10 @@ public class TrackSchedulerRegistry {
         this.playerManager = playerManager;
     }
 
+    public void reset() {
+        trackSchedulers.clear();
+    }
+
     /**
      * Retrieves an existing TrackScheduler for a guild or creates a new one if it doesn't exist.
      *
