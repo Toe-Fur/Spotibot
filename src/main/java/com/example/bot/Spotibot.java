@@ -303,7 +303,16 @@ public class Spotibot extends ListenerAdapter {
         String title = query;
 
         // Download the song
-        ProcessBuilder downloadBuilder = new ProcessBuilder("yt-dlp", "-4", "-f", "bestaudio", "--no-playlist", "-o", outputFilePath, query);
+        ProcessBuilder downloadBuilder = new ProcessBuilder(
+            "yt-dlp", 
+            "-4", 
+            "-f", "bestaudio", 
+            "--no-playlist", 
+            "--cookies", "cookies.txt", 
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36", 
+            "-o", outputFilePath, 
+            query
+        );
         downloadBuilder.redirectErrorStream(true);
         Process downloadProcess = downloadBuilder.start();
 
