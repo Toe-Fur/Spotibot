@@ -260,21 +260,15 @@ public class Spotibot extends ListenerAdapter {
     }
 
     private File downloadWebmFile(String input, String serverFolder) throws IOException, InterruptedException {
-        String title = getYouTubeTitle(input);
-        if (title == null) return null;
-
-        String sanitizedTitle = sanitizeFileName(title);
-        String outputFilePath = serverFolder + sanitizedTitle + ".webm";
-
-        File downloadsDir = new File(serverFolder);
-        if (!downloadsDir.exists()) {
-            downloadsDir.mkdirs();
-        }
-
         String query = input.startsWith("http://") || input.startsWith("https://") ? input : "ytsearch:" + input;
 
-        ProcessBuilder downloadBuilder = new ProcessBuilder("yt-dlp", "-f", "bestaudio", "-o", outputFilePath, query);
+        String outputFilePath = serverFolder + "%(title)s [%(id)s].webm"; // Unique output template
+        ProcessBuilder downloadBuilder = new ProcessBuilder(
+            "yt-dlp", "-4", "-f", "bestaudio", "--no-playlist", "-o", outputFilePath, query); // IPv4 and format flags        
         downloadBuilder.redirectErrorStream(true);
+
+        logger.info("Executing command: " + String.join(" ", downloadBuilder.command()));
+
         Process downloadProcess = downloadBuilder.start();
 
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(downloadProcess.getInputStream()))) {
@@ -292,13 +286,15 @@ public class Spotibot extends ListenerAdapter {
             return null;
         }
 
-        File downloadedFile = new File(outputFilePath);
-        if (!downloadedFile.exists()) {
+        File downloadedFile = new File(serverFolder); // Check the directory for downloaded files
+        File[] files = downloadedFile.listFiles((dir, name) -> name.endsWith(".webm"));
+        if (files != null && files.length == 1) {
+            logger.info("File downloaded successfully: " + files[0].getAbsolutePath());
+            return files[0];
+        } else {
             logger.error("File not found after download.");
             return null;
         }
-
-        return downloadedFile;
     }
 
     private void playWebmDirectly(String filePath, TrackScheduler trackScheduler, GuildMessageChannel messageChannel) {
