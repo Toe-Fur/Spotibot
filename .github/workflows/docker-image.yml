@@ -23,7 +23,7 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag ghcr.io/${{ github.repository }}/spotibot:latest
+      run: docker build . --file Dockerfile --tag spotibot:$(date +%s)
 
     - name: Push Docker image to GitHub Container Registry
-      run: docker push ghcr.io/${{ github.repository }}/spotibot:latest
+      run: docker push spotibot:$(date +%s)
