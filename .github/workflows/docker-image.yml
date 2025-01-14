@@ -26,4 +26,4 @@ jobs:
       run: docker build . --file Dockerfile --tag spotibot:$(date +%s)
 
     - name: Push Docker image to GitHub Container Registry
-      run: docker push ghcr.io/${{ github.repository }}:$(date +%s)
+      run: docker push ghcr.io/toe-fur/spotibot:$(date +%s)
