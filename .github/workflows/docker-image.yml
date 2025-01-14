@@ -7,13 +7,17 @@ on:
     branches: [ "main" ]
 
 jobs:
-
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+      with:
+        version: latest
 
     - name: Log in to GitHub Container Registry
       uses: docker/login-action@v2
@@ -22,8 +26,7 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag ghcr.io/toe-fur/spotibot:beta
-
-    - name: Push Docker image to GitHub Container Registry
-      run: docker push ghcr.io/toe-fur/spotibot:beta
+    - name: Build and push Docker image for multiple platforms
+      run: |
+        docker buildx create --use
+        docker buildx build . --file Dockerfile --platform linux/amd64,linux/arm64 -t ghcr.io/toe-fur/spotibot:beta --push

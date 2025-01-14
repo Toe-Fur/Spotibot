@@ -1,34 +1,43 @@
-# Use Maven image to build the project
-FROM maven:3.8.7-openjdk-18-slim AS builder
+# Use the official Maven image to build the project
+FROM maven:3.9.5-eclipse-temurin-17 as builder
 
-# Set working directory
+# Set the working directory inside the container
 WORKDIR /app
 
-# Copy pom.xml and source code
+# Copy the Maven project files
 COPY pom.xml .
 COPY src ./src
 
-# Build the project
+# Run Maven package to build the project
 RUN mvn clean package -DskipTests
 
-# Use a lightweight JRE image for the runtime
-FROM openjdk:17-jdk-slim
+# Use a lightweight JRE image to run the application
+FROM eclipse-temurin:17-jre
 
-# Set working directory
+# Set the working directory for the runtime container
 WORKDIR /app
 
-# Install yt-dlp and required dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install yt-dlp and dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
     curl \
     python3 \
-    python3-pip && \
-    pip3 install yt-dlp && \
+    python3-pip \
+    software-properties-common && \
+    add-apt-repository ppa:tomtomtom/yt-dlp && \
+    apt-get update && \
+    apt-get install -y yt-dlp && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy the JAR file from the builder stage
-COPY --from=builder /app/target/Spotibot.jar app.jar
+# Copy the built JAR from the builder stage
+COPY --from=builder /app/target/Spotibot.jar Spotibot.jar
 
+# Add the entrypoint script
+COPY entrypoint.sh /app/entrypoint.sh
 
-# Command to run the application
-CMD ["java", "-jar", "app.jar"]
+# Make the script executable
+RUN chmod +x /app/entrypoint.sh
+
+# Set the entrypoint to the shell script
+ENTRYPOINT ["/app/entrypoint.sh"]
