@@ -36,19 +36,30 @@ public class Spotibot extends ListenerAdapter {
     private static String stopEmoji;
     private static String queueEmoji;
     private static final String BASE_DOWNLOAD_FOLDER = "downloads/";
-    private static final String CONFIG_FILE_NAME = "config.json";
 
     public final ConcurrentHashMap<Long, LinkedBlockingQueue<String>> serverQueues = new ConcurrentHashMap<>();
     public final ConcurrentHashMap<Long, LinkedBlockingQueue<String>> serverTitles = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, String> currentlyPlayingTitles = new ConcurrentHashMap<>();
+
+    private static final String CONFIG_FOLDER = "./config/";
+    private static final String CONFIG_FILE_PATH = CONFIG_FOLDER + "config.json";
+    private static final String COOKIE_FILE_PATH = CONFIG_FOLDER + "cookies.txt";
 
     public LinkedBlockingQueue<String> getServerTitleQueue(long guildId) {
         return serverTitles.get(guildId);
     }
 
     public static void main(String[] args) {
+        createConfigFolder();
         ensureConfigFileExists();
         loadConfig();
+
+        File cookieFile = new File(COOKIE_FILE_PATH);
+        if (cookieFile.exists()) {
+            logger.info("Using cookies from: " + cookieFile.getAbsolutePath());
+        } else {
+            logger.warn("No cookies.txt found in the config folder. Proceeding without cookies.");
+        }
 
         if (BOT_TOKEN == null || BOT_TOKEN.isEmpty()) {
             throw new IllegalArgumentException("Bot token is not set. Please set the bot token in the config file.");
@@ -56,17 +67,29 @@ public class Spotibot extends ListenerAdapter {
 
         try {
             JDABuilder.createDefault(BOT_TOKEN)
-                    .enableIntents(GatewayIntent.MESSAGE_CONTENT)
-                    .setActivity(Activity.playing(STATUS))
-                    .addEventListeners(new Spotibot())
-                    .build();
+                .enableIntents(GatewayIntent.MESSAGE_CONTENT)
+                .setActivity(Activity.playing(STATUS))
+                .addEventListeners(new Spotibot())
+                .build();
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
+    private static void createConfigFolder() {
+        File configFolder = new File(CONFIG_FOLDER);
+        if (!configFolder.exists()) {
+            boolean created = configFolder.mkdir();
+            if (created) {
+                logger.info("Created config folder: " + CONFIG_FOLDER);
+            } else {
+                logger.error("Failed to create config folder: " + CONFIG_FOLDER);
+            }
+        }
+    }
+
     private static void ensureConfigFileExists() {
-        File configFile = new File(CONFIG_FILE_NAME);
+        File configFile = new File(CONFIG_FILE_PATH);
 
         if (!configFile.exists()) {
             try (FileWriter writer = new FileWriter(configFile)) {
@@ -75,7 +98,7 @@ public class Spotibot extends ListenerAdapter {
                         "  \"status\": \"Playing music on Discord\",\n" +
                         "  \"default_volume\": 60,\n" +
                         "  \"queue_format\": {\n" +
-                        "    \"now_playing\": \"🎶 **Now Playing:** (title)\",\n" +
+                        "    \"now_playing\": \"🎶 **Now Playing:** {title}\",\n" +
                         "    \"queued\": \"📍 **{title}**\"\n" +
                         "  },\n" +
                         "  \"emojis\": {\n" +
@@ -84,18 +107,16 @@ public class Spotibot extends ListenerAdapter {
                         "    \"queue\": \"📝\"\n" +
                         "  }\n" +
                         "}");
-                System.out.println("Created default config.json file in the current directory.");
+                logger.info("Created default config.json file in the config folder.");
             } catch (IOException e) {
-                System.err.println("Failed to create config.json: " + e.getMessage());
+                logger.error("Failed to create config.json: " + e.getMessage(), e);
             }
-        } else {
-            System.out.println("Config file already exists. Skipping creation.");
         }
     }
 
     private static void loadConfig() {
         try {
-            File configFile = new File(CONFIG_FILE_NAME);
+            File configFile = new File(CONFIG_FILE_PATH);
 
             if (!configFile.exists()) {
                 logger.error("Config file not found. Please create config.json and provide the necessary configuration.");
@@ -298,24 +319,39 @@ public class Spotibot extends ListenerAdapter {
         return input.contains("list=");
     }
 
+    private static final String DEFAULT_COOKIE_FILE = new File(System.getProperty("user.dir"), "cookies.txt").getAbsolutePath();
+
     private void downloadAndQueueSong(String query, String outputFilePath, TrackScheduler trackScheduler, GuildMessageChannel messageChannel) throws IOException, InterruptedException {
-        // No need to fetch the title again, use the provided song title
-        String title = query;
+        File cookieFile = new File(COOKIE_FILE_PATH);
 
-        // Download the song
-        ProcessBuilder downloadBuilder = new ProcessBuilder(
-            "yt-dlp", 
-            "-4", 
-            "-f", "bestaudio", 
-            "--no-playlist", 
-            "--cookies", "cookies.txt", 
-            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36", 
-            "-o", outputFilePath, 
-            query
-        );
-        downloadBuilder.redirectErrorStream(true);
+        if (!cookieFile.exists()) {
+            logger.warn("No cookies.txt found in the config folder. Proceeding without cookies.");
+            messageChannel.sendMessage("No cookies found. YouTube may restrict access to certain videos.").queue();
+        }
+
+        ProcessBuilder downloadBuilder;
+        if (cookieFile.exists()) {
+            downloadBuilder = new ProcessBuilder(
+                "yt-dlp",
+                "-4",
+                "-f", "bestaudio",
+                "--no-playlist",
+                "--cookies", cookieFile.getAbsolutePath(),
+                "-o", outputFilePath,
+                query
+            );
+        } else {
+            downloadBuilder = new ProcessBuilder(
+                "yt-dlp",
+                "-4",
+                "-f", "bestaudio",
+                "--no-playlist",
+                "-o", outputFilePath,
+                query
+            );
+        }
+
         Process downloadProcess = downloadBuilder.start();
-
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(downloadProcess.getInputStream()))) {
             String line;
             while ((line = reader.readLine()) != null) {
@@ -334,8 +370,8 @@ public class Spotibot extends ListenerAdapter {
 
         File downloadedFile = new File(outputFilePath);
         if (downloadedFile.exists()) {
-            trackScheduler.queueSong(downloadedFile, title); // Use the title directly
-            String displayTitle = title.replace("ytsearch:", "").trim(); // Remove ytsearch prefix
+            trackScheduler.queueSong(downloadedFile, query);
+            String displayTitle = query.replace("ytsearch:", "").trim();
             messageChannel.sendMessage(String.format("📍 **Queued:** `%s`", displayTitle)).queue();
         } else {
             messageChannel.sendMessage("Failed to download song: " + query).queue();
@@ -382,10 +418,11 @@ public class Spotibot extends ListenerAdapter {
 
     private String getHelpMessage() {
         return "**Spotibot Commands**:\n" +
-                "`!play <URL or search term>` - Plays a YouTube video. If something is already playing, it will queue the track.\n" +
-                "`!skip` or `" + skipEmoji + "` - Skips the currently playing track and plays the next one in the queue.\n" +
-                "`!stop` or `" + stopEmoji + "` - Stops playback, clears the queue, and deletes all downloaded tracks.\n" +
-                "`!queue` or `" + queueEmoji + "` - Shows the current queue.\n" +
-                "`!help` - Shows this list of commands.";
+               "`!play <URL or search term>` - Plays a YouTube video.\n" +
+               "`!skip` - Skips the current track.\n" +
+               "`!stop` - Stops playback and resets the bot.\n" +
+               "`!queue` - Shows the current queue.\n" +
+               "`!help` - Shows this list of commands.\n" +
+               "\nNote: Place your `cookies.txt` file in the `config` folder for YouTube authentication.";
     }
 }
