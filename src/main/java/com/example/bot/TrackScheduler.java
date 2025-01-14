@@ -10,14 +10,16 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.util.concurrent.LinkedBlockingQueue;
 import net.dv8tion.jda.api.entities.Guild;
-
 import com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler;
 import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.event.AudioEventListener {
     private static final Logger logger = LoggerFactory.getLogger(TrackScheduler.class);
 
+    private final Map<String, String> trackTitles = new ConcurrentHashMap<>();
     private final AudioPlayerManager playerManager; // The audio player manager
     private final AudioPlayer player; // The audio player responsible for playback
     private final LinkedBlockingQueue<AudioTrack> queue; // Queue for managing tracks
@@ -42,12 +44,14 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
 
     // Adds a track to the queue or plays it immediately if nothing is playing
     public void queue(AudioTrack track) {
+        track.setUserData(track.getIdentifier()); // Attach a unique identifier for easier tracking
+        logger.info("Queueing track: " + track.getInfo().title + " with identifier: " + track.getIdentifier());
         if (!player.startTrack(track, true)) {
-            // If a track is already playing, add the new track to the queue
             queue.offer(track);
+            logger.info("Track added to queue: " + track.getInfo().title);
         } else {
-            // Otherwise, set the new track as the current track
             currentTrack = track;
+            logger.info("Now playing: " + track.getInfo().title);
         }
     }
 
@@ -100,36 +104,27 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
 
     // Plays the next track in the queue or stops playback if the queue is empty
     public void nextTrack() {
-        // Store the file name of the current track before moving to the next one
+        // Save the current track file name for deletion
         String previousTrackFileName = getCurrentTrackFileName();
+        logger.info("Moving to next track. Current track: " + (currentTrack != null ? currentTrack.getInfo().title : "None"));
 
-        // Fetch the next track from the queue
+        // Poll the next track from the queue
         currentTrack = queue.poll();
 
         if (currentTrack != null) {
-            // Play the next track
-            boolean trackStarted = player.startTrack(currentTrack, false);
-
-            if (trackStarted) {
-                logger.info("Started next track: " + currentTrack.getInfo().title);
-            } else {
-                logger.warn("Failed to start the next track: " + currentTrack.getInfo().title);
-            }
-
-            // Now delete the file for the previous track (after playback has started)
-            if (previousTrackFileName != null) {
-                deleteFile(previousTrackFileName);
-            }
+            // Start the next track
+            player.startTrack(currentTrack, false);
+            logger.info("Started next track: " + currentTrack.getInfo().title);
         } else {
-            // Stop playback if the queue is empty
+            // No more tracks in the queue
             logger.info("Queue is empty. Stopping playback.");
             player.stopTrack();
-            leaveVoiceChannel(); // Disconnect from the voice channel
+            leaveVoiceChannel();
+        }
 
-            // Clean up the file for the previous track
-            if (previousTrackFileName != null) {
-                deleteFile(previousTrackFileName);
-            }
+        // Delete the file for the previous track
+        if (previousTrackFileName != null) {
+            deleteFile(previousTrackFileName);
         }
     }
 
@@ -147,22 +142,24 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
         }
     }
 
+    // Add a method to get the title
+    public String getTitle(String trackId) {
+        return trackTitles.get(trackId);
+    }
+
     public void queueSong(File file, String title) {
         playerManager.loadItem(file.getAbsolutePath(), new AudioLoadResultHandler() {
             @Override
             public void trackLoaded(AudioTrack track) {
-                if (player.getPlayingTrack() == null) {
-                    player.startTrack(track, false);
-                    logger.info("Started playing: " + title);
-                } else {
-                    queue.offer(track);
-                    logger.info("Queued track: " + title);
-                }
+                track.setUserData(file.getAbsolutePath()); // Attach the file path for each track
+                queue(track); // Queue the track
+                trackTitles.put(track.getIdentifier(), title); // Store the title with the track ID
+                logger.info("Loaded and queued track: " + title);
             }
 
             @Override
             public void playlistLoaded(AudioPlaylist playlist) {
-                logger.warn("Unexpected playlist loaded in queueSong: " + playlist.getName());
+                logger.warn("Unexpected playlist loaded: " + playlist.getName());
             }
 
             @Override
@@ -185,7 +182,11 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
     // Deletes the file for the current track
     private void deleteCurrentTrackFile() {
         if (currentTrack != null) {
-            deleteTrackFile(currentTrack);
+            Object userData = currentTrack.getUserData();
+            if (userData instanceof String) {
+                String fileName = (String) userData;
+                deleteFile(fileName);
+            }
             currentTrack = null;
         }
     }
@@ -233,10 +234,11 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
     @Override
     public void onEvent(com.sedmelluq.discord.lavaplayer.player.event.AudioEvent event) {
         if (event instanceof com.sedmelluq.discord.lavaplayer.player.event.TrackEndEvent) {
-            com.sedmelluq.discord.lavaplayer.player.event.TrackEndEvent trackEndEvent = (com.sedmelluq.discord.lavaplayer.player.event.TrackEndEvent) event;
-            if (trackEndEvent.endReason.mayStartNext) {
-                logger.info("Track ended: " + (currentTrack != null ? currentTrack.getInfo().title : "Unknown"));
-                nextTrack(); // Play the next track in the queue
+            AudioTrackEndReason reason = ((com.sedmelluq.discord.lavaplayer.player.event.TrackEndEvent) event).endReason;
+            if (reason.mayStartNext) {
+                // Advance to the next track when the current track ends
+                deleteCurrentTrackFile();
+                nextTrack();
             }
         }
     }

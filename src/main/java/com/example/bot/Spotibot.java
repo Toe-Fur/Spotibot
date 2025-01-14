@@ -1,10 +1,8 @@
 package com.example.bot;
 
-import com.sedmelluq.discord.lavaplayer.player.AudioPlayer;
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayerManager;
 import com.sedmelluq.discord.lavaplayer.player.DefaultAudioPlayerManager;
 import com.sedmelluq.discord.lavaplayer.source.AudioSourceManagers;
-import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
@@ -13,13 +11,10 @@ import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.entities.Activity;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-
 import java.io.*;
 import java.util.*;
 import java.util.concurrent.*;
@@ -29,6 +24,8 @@ public class Spotibot extends ListenerAdapter {
     private static final Logger logger = LoggerFactory.getLogger(Spotibot.class);
     private final AudioPlayerManager playerManager = new DefaultAudioPlayerManager();
     private final ExecutorService downloadExecutor = Executors.newCachedThreadPool();
+    private final BlockingQueue<Runnable> downloadQueue = new LinkedBlockingQueue<>();
+    private Future<?> currentDownloadTask;
     private TrackSchedulerRegistry trackSchedulerRegistry;
     private static String BOT_TOKEN;
     private static String STATUS;
@@ -133,6 +130,7 @@ public class Spotibot extends ListenerAdapter {
         AudioSourceManagers.registerRemoteSources(playerManager);
         AudioSourceManagers.registerLocalSource(playerManager);
         trackSchedulerRegistry = new TrackSchedulerRegistry(playerManager);
+        startDownloadQueueProcessor();
     }
 
     @Override
@@ -157,23 +155,38 @@ public class Spotibot extends ListenerAdapter {
             guild.getAudioManager().setSendingHandler(new AudioPlayerSendHandler(trackScheduler.getPlayer()));
             guild.getAudioManager().openAudioConnection(voiceChannel);
 
-            downloadExecutor.submit(() -> {
+            if (isPlaylist(input)) {
+                List<String> playlistTitles;
                 try {
-                    if (isPlaylist(input)) {
-                        handlePlaylist(input, guild, messageChannel, trackScheduler, serverFolder);
-                    } else {
-                        File downloadedFile = downloadWebmFile(input, serverFolder);
-                        if (downloadedFile != null) {
-                            playWebmDirectly(downloadedFile.getAbsolutePath(), trackScheduler, messageChannel);
-                        } else {
-                            messageChannel.sendMessage("Failed to download the file.").queue();
-                        }
-                    }
+                    playlistTitles = getYouTubePlaylistTitles(input);
                 } catch (IOException | InterruptedException e) {
-                    messageChannel.sendMessage("Error while processing your request: " + e.getMessage()).queue();
-                    logger.error("Error processing request for input: " + input, e);
+                    messageChannel.sendMessage("Failed to retrieve playlist: " + e.getMessage()).queue();
+                    return;
                 }
-            });
+
+                for (String song : playlistTitles) {
+                    downloadQueue.offer(() -> {
+                        try {
+                            String query = "ytsearch:" + song;
+                            String outputFilePath = serverFolder + sanitizeFileName(song) + ".webm";
+                            downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel);
+                        } catch (IOException | InterruptedException e) {
+                            messageChannel.sendMessage("Error downloading song: " + e.getMessage()).queue();
+                            logger.error("Error downloading song: " + song, e);
+                        }
+                    });
+                }
+            } else {
+                downloadQueue.offer(() -> {
+                    try {
+                        String outputFilePath = serverFolder + sanitizeFileName(input) + ".webm";
+                        downloadAndQueueSong(input, outputFilePath, trackScheduler, messageChannel);
+                    } catch (IOException | InterruptedException e) {
+                        messageChannel.sendMessage("Error downloading song: " + e.getMessage()).queue();
+                        logger.error("Error downloading song: " + input, e);
+                    }
+                });
+            }
         } else if (message.equalsIgnoreCase("!skip") || message.equalsIgnoreCase(skipEmoji)) {
             handleSkipCommand(guild, messageChannel, trackScheduler);
         } else if (message.equalsIgnoreCase("!stop") || message.equalsIgnoreCase(stopEmoji)) {
@@ -194,11 +207,42 @@ public class Spotibot extends ListenerAdapter {
         }
     }
 
+    private void startDownloadQueueProcessor() {
+        downloadExecutor.submit(() -> {
+            while (true) {
+                try {
+                    Runnable downloadTask = downloadQueue.take();
+                    currentDownloadTask = downloadExecutor.submit(downloadTask);
+                    currentDownloadTask.get(); // Wait for the task to complete
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (CancellationException e) {
+                    logger.info("Download task was cancelled.");
+                    break; // Exit the loop if a task is cancelled
+                } catch (Exception e) {
+                    logger.error("Error processing download task", e);
+                }
+            }
+        });
+    }
+
     private void handleStopCommand(Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler, String serverFolder) {
         trackScheduler.clearQueueAndStop();
         guild.getAudioManager().closeAudioConnection();
-        clearDownloadsFolder(serverFolder);
+        
+        // Cancel the current download task
+        if (currentDownloadTask != null) {
+            currentDownloadTask.cancel(true);
+            currentDownloadTask = null;
+        }
+
+        // Clear the download queue
+        downloadQueue.clear();
+
         messageChannel.sendMessage(stopEmoji + " Stopped playback and cleared the queue.").queue();
+
+        clearDownloadsFolder(serverFolder);
     }
 
     private List<String> getYouTubePlaylistTitles(String playlistUrl) throws IOException, InterruptedException {
@@ -222,53 +266,13 @@ public class Spotibot extends ListenerAdapter {
         return input.contains("list=");
     }
 
-    private void handlePlaylist(String input, Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler, String serverFolder) throws IOException, InterruptedException {
-        List<String> playlistTitles = getYouTubePlaylistTitles(input);
-        for (String song : playlistTitles) {
-            File downloadedFile = downloadWebmFile(song, serverFolder);
-            if (downloadedFile != null) {
-                playWebmDirectly(downloadedFile.getAbsolutePath(), trackScheduler, messageChannel);
-            } else {
-                messageChannel.sendMessage("Failed to download song from playlist: " + song).queue();
-            }
-        }
-    }
+    private void downloadAndQueueSong(String query, String outputFilePath, TrackScheduler trackScheduler, GuildMessageChannel messageChannel) throws IOException, InterruptedException {
+        // No need to fetch the title again, use the provided song title
+        String title = query;
 
-    private void showQueue(MessageReceivedEvent event, TrackScheduler trackScheduler) {
-        LinkedBlockingQueue<AudioTrack> playbackQueue = trackScheduler.getQueue();
-        StringBuilder queueMessage = new StringBuilder("🎶 **Now Playing and Queue** 🎶\n");
-
-        // Add the currently playing track
-        AudioTrack currentTrack = trackScheduler.getCurrentTrack();
-        if (currentTrack != null) {
-            queueMessage.append("🎵 Now Playing: (Title)").append("\n");
-        } else {
-            queueMessage.append("🎵 Nothing is currently playing.").append("\n");
-        }
-
-        // Add upcoming tracks
-        int index = 1;
-        for (AudioTrack track : playbackQueue) {
-            queueMessage.append("📍 ").append(index++).append(". ").append(track.getInfo().title).append("\n");
-        }
-
-        if (playbackQueue.isEmpty()) {
-            queueMessage.append("The queue is empty.");
-        }
-
-        event.getChannel().sendMessage(queueMessage.toString()).queue();
-    }
-
-    private File downloadWebmFile(String input, String serverFolder) throws IOException, InterruptedException {
-        String query = input.startsWith("http://") || input.startsWith("https://") ? input : "ytsearch:" + input;
-
-        String outputFilePath = serverFolder + "%(title)s [%(id)s].webm"; // Unique output template
-        ProcessBuilder downloadBuilder = new ProcessBuilder(
-            "yt-dlp", "-4", "-f", "bestaudio", "--no-playlist", "-o", outputFilePath, query); // IPv4 and format flags        
+        // Download the song
+        ProcessBuilder downloadBuilder = new ProcessBuilder("yt-dlp", "-4", "-f", "bestaudio", "--no-playlist", "-o", outputFilePath, query);
         downloadBuilder.redirectErrorStream(true);
-
-        logger.info("Executing command: " + String.join(" ", downloadBuilder.command()));
-
         Process downloadProcess = downloadBuilder.start();
 
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(downloadProcess.getInputStream()))) {
@@ -282,42 +286,45 @@ public class Spotibot extends ListenerAdapter {
 
         if (!completedInTime) {
             downloadProcess.destroyForcibly();
-            logger.error("Download process timed out.");
-            return null;
+            logger.error("Download process timed out for query: " + query);
+            messageChannel.sendMessage("Failed to download song: " + query).queue();
+            return;
         }
 
-        File downloadedFile = new File(serverFolder); // Check the directory for downloaded files
-        File[] files = downloadedFile.listFiles((dir, name) -> name.endsWith(".webm"));
-        if (files != null && files.length == 1) {
-            logger.info("File downloaded successfully: " + files[0].getAbsolutePath());
-            return files[0];
+        File downloadedFile = new File(outputFilePath);
+        if (downloadedFile.exists()) {
+            trackScheduler.queueSong(downloadedFile, title); // Use the title directly
+            messageChannel.sendMessage(String.format("📍 **Queued:** `%s`", title)).queue();
         } else {
-            logger.error("File not found after download.");
-            return null;
+            messageChannel.sendMessage("Failed to download song: " + query).queue();
         }
     }
 
-    private void playWebmDirectly(String filePath, TrackScheduler trackScheduler, GuildMessageChannel messageChannel) {
-        File file = new File(filePath);
-        String fileName = file.getName(); // Extracts the file name from the full path
-        String sanitizedTitle = fileName.replaceFirst("\\.webm$", ""); // Removes the file extension for display
+    private void showQueue(MessageReceivedEvent event, TrackScheduler trackScheduler) {
+        LinkedBlockingQueue<AudioTrack> playbackQueue = trackScheduler.getQueue();
+        StringBuilder queueMessage = new StringBuilder("🎶 **Now Playing and Queue** 🎶\n");
 
-        playerManager.loadItem(filePath, new AudioLoadResultHandlerImpl(trackScheduler.getPlayer(), messageChannel, trackScheduler, file, filePath));
-        messageChannel.sendMessage(String.format("🎶 **Now Playing:** `%s`", sanitizedTitle)).queue();
-    }
-
-
-    private String getYouTubeTitle(String input) throws IOException, InterruptedException {
-        String query = input.startsWith("http://") || input.startsWith("https://") ? input : "ytsearch:" + input;
-
-        ProcessBuilder builder = new ProcessBuilder("yt-dlp", "--get-title", query);
-        builder.redirectErrorStream(true);
-        Process metadataProcess = builder.start();
-
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(metadataProcess.getInputStream()))) {
-            String title = reader.readLine();
-            return title != null ? title.trim() : null;
+        // Add the currently playing track
+        AudioTrack currentTrack = trackScheduler.getCurrentTrack();
+        if (currentTrack != null) {
+            String title = trackScheduler.getTitle(currentTrack.getIdentifier()); // Fetch the title
+            queueMessage.append("🎵 Now Playing: ").append(title != null ? title : "Unknown Title").append("\n");
+        } else {
+            queueMessage.append("🎵 Nothing is currently playing.").append("\n");
         }
+
+        // Add upcoming tracks
+        int index = 1;
+        for (AudioTrack track : playbackQueue) {
+            String title = trackScheduler.getTitle(track.getIdentifier()); // Fetch the title
+            queueMessage.append("📍 ").append(index++).append(". ").append(title != null ? title : "Unknown Title").append("\n");
+        }
+
+        if (playbackQueue.isEmpty()) {
+            queueMessage.append("The queue is empty.");
+        }
+
+        event.getChannel().sendMessage(queueMessage.toString()).queue();
     }
 
     private String sanitizeFileName(String input) {
