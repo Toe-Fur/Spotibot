@@ -176,7 +176,7 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
 
     // Checks if the queue is empty and no track is currently playing
     public boolean isQueueEmpty() {
-        return queue.isEmpty() && currentTrack == null;
+        return queue.isEmpty() && player.getPlayingTrack() == null;
     }
 
     // Deletes the file for the current track

@@ -191,7 +191,7 @@ public class Spotibot extends ListenerAdapter {
                             String query = "ytsearch:" + song;
                             String sanitizedSongName = sanitizeFileName(song); // Sanitize the song name
                             String outputFilePath = serverFolder + sanitizedSongName + ".webm";
-                            downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel); // Pass the correct arguments
+                            downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel, guild);
                         } catch (IOException | InterruptedException e) {
                             messageChannel.sendMessage("Error downloading song: " + e.getMessage()).queue();
                             logger.error("Error downloading song: " + song, e);
@@ -204,7 +204,7 @@ public class Spotibot extends ListenerAdapter {
                         String query = "ytsearch:" + input;
                         String sanitizedSongName = sanitizeFileName(input); // Sanitize the input
                         String outputFilePath = serverFolder + sanitizedSongName + ".webm";
-                        downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel); // Pass the correct arguments
+                        downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel, guild);
                     } catch (IOException | InterruptedException e) {
                         messageChannel.sendMessage("Error downloading song: " + e.getMessage()).queue();
                         logger.error("Error downloading song: " + input, e);
@@ -226,6 +226,11 @@ public class Spotibot extends ListenerAdapter {
         if (trackScheduler.getPlayer().getPlayingTrack() != null) {
             trackScheduler.nextTrack();
             messageChannel.sendMessage(skipEmoji + " Skipped to the next track.").queue();
+            // Check if the queue is empty
+            if (trackScheduler.isQueueEmpty()) {
+                String serverFolder = BASE_DOWNLOAD_FOLDER + guild.getId() + "/"; // Use guild to construct serverFolder
+                handleStopCommand(guild, messageChannel, trackScheduler, serverFolder); // Pass guild
+            }
         } else {
             messageChannel.sendMessage("No track is currently playing to skip.").queue();
         }
@@ -321,7 +326,7 @@ public class Spotibot extends ListenerAdapter {
 
     private static final String DEFAULT_COOKIE_FILE = new File(System.getProperty("user.dir"), "cookies.txt").getAbsolutePath();
 
-    private void downloadAndQueueSong(String query, String outputFilePath, TrackScheduler trackScheduler, GuildMessageChannel messageChannel) throws IOException, InterruptedException {
+    private void downloadAndQueueSong(String query, String outputFilePath, TrackScheduler trackScheduler, GuildMessageChannel messageChannel, Guild guild) throws IOException, InterruptedException {
         File cookieFile = new File(COOKIE_FILE_PATH);
 
         if (!cookieFile.exists()) {
@@ -375,6 +380,13 @@ public class Spotibot extends ListenerAdapter {
             messageChannel.sendMessage(String.format("📍 **Queued:** `%s`", displayTitle)).queue();
         } else {
             messageChannel.sendMessage("Failed to download song: " + query).queue();
+
+            // Check if the queue is empty
+            if (trackScheduler.isQueueEmpty()) {
+                messageChannel.sendMessage("Queue is empty and download failed. Stopping the bot.").queue();
+                String serverFolder = BASE_DOWNLOAD_FOLDER + guild.getId() + "/"; // Use guild to construct serverFolder
+                handleStopCommand(guild, messageChannel, trackScheduler, serverFolder); // Pass guild
+            }
         }
     }
 
