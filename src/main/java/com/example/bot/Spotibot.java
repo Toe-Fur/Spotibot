@@ -19,6 +19,7 @@ import java.io.*;
 import java.util.*;
 import java.util.concurrent.*;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
+import com.example.bot.SpotifyUtils;
 
 public class Spotibot extends ListenerAdapter {
     private static final Logger logger = LoggerFactory.getLogger(Spotibot.class);
@@ -166,50 +167,71 @@ public class Spotibot extends ListenerAdapter {
 
         if (message.startsWith("!play ")) {
             String input = message.replace("!play ", "").trim();
-            VoiceChannel voiceChannel = (VoiceChannel) event.getMember().getVoiceState().getChannel();
 
-            if (voiceChannel == null) {
-                messageChannel.sendMessage("You must be in a voice channel to use this command.").queue();
-                return;
-            }
-
-            guild.getAudioManager().setSendingHandler(new AudioPlayerSendHandler(trackScheduler.getPlayer()));
-            guild.getAudioManager().openAudioConnection(voiceChannel);
-
-            if (isPlaylist(input)) {
-                List<String> playlistTitles;
-                try {
-                    playlistTitles = getYouTubePlaylistTitles(input);
-                } catch (IOException | InterruptedException e) {
-                    messageChannel.sendMessage("Failed to retrieve playlist: " + e.getMessage()).queue();
+            try {
+                VoiceChannel voiceChannel = (VoiceChannel) event.getMember().getVoiceState().getChannel();
+                if (voiceChannel == null) {
+                    messageChannel.sendMessage("You must be in a voice channel to use this command.").queue();
                     return;
                 }
 
-                for (String song : playlistTitles) {
-                    downloadQueue.offer(() -> {
-                        try {
-                            String query = "ytsearch:" + song;
-                            String sanitizedSongName = sanitizeFileName(song); // Sanitize the song name
-                            String outputFilePath = serverFolder + sanitizedSongName + ".webm";
-                            downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel, guild);
-                        } catch (IOException | InterruptedException e) {
-                            messageChannel.sendMessage("Error downloading song: " + e.getMessage()).queue();
-                            logger.error("Error downloading song: " + song, e);
-                        }
-                    });
-                }
-            } else {
-                downloadQueue.offer(() -> {
-                    try {
-                        String query = "ytsearch:" + input;
-                        String sanitizedSongName = sanitizeFileName(input); // Sanitize the input
-                        String outputFilePath = serverFolder + sanitizedSongName + ".webm";
-                        downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel, guild);
-                    } catch (IOException | InterruptedException e) {
-                        messageChannel.sendMessage("Error downloading song: " + e.getMessage()).queue();
-                        logger.error("Error downloading song: " + input, e);
+                guild.getAudioManager().setSendingHandler(new AudioPlayerSendHandler(trackScheduler.getPlayer()));
+                guild.getAudioManager().openAudioConnection(voiceChannel);
+
+                if (input.contains("spotify.com/track")) {
+                    String trackId = extractSpotifyId(input);
+                    String trackTitle = SpotifyUtils.getTrackTitle(trackId);
+                    queueAndPlay(trackTitle, trackScheduler, messageChannel, guild, serverFolder);
+                } else if (input.contains("spotify.com/playlist")) {
+                    String playlistId = extractSpotifyId(input);
+                    List<String> trackTitles = SpotifyUtils.getPlaylistTracks(playlistId);
+
+                    for (String trackTitle : trackTitles) {
+                        queueAndPlay(trackTitle, trackScheduler, messageChannel, guild, serverFolder);
                     }
-                });
+                } else {
+                    guild.getAudioManager().setSendingHandler(new AudioPlayerSendHandler(trackScheduler.getPlayer()));
+                    guild.getAudioManager().openAudioConnection(voiceChannel);
+
+                    if (isPlaylist(input)) {
+                        List<String> playlistTitles;
+                        try {
+                            playlistTitles = getYouTubePlaylistTitles(input);
+                        } catch (IOException | InterruptedException e) {
+                            messageChannel.sendMessage("Failed to retrieve playlist: " + e.getMessage()).queue();
+                            return;
+                        }
+
+                        for (String song : playlistTitles) {
+                            downloadQueue.offer(() -> {
+                                try {
+                                    String query = "ytsearch:" + song;
+                                    String sanitizedSongName = sanitizeFileName(song); // Sanitize the song name
+                                    String outputFilePath = serverFolder + sanitizedSongName + ".webm";
+                                    downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel, guild);
+                                } catch (IOException | InterruptedException e) {
+                                    messageChannel.sendMessage("Error downloading song: " + e.getMessage()).queue();
+                                    logger.error("Error downloading song: " + song, e);
+                                }
+                            });
+                        }
+                    } else {
+                        downloadQueue.offer(() -> {
+                            try {
+                                String query = "ytsearch:" + input;
+                                String sanitizedSongName = sanitizeFileName(input); // Sanitize the input
+                                String outputFilePath = serverFolder + sanitizedSongName + ".webm";
+                                downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel, guild);
+                            } catch (IOException | InterruptedException e) {
+                                messageChannel.sendMessage("Error downloading song: " + e.getMessage()).queue();
+                                logger.error("Error downloading song: " + input, e);
+                            }
+                        });
+                    }
+                }
+            } catch (IOException e) {
+                messageChannel.sendMessage("An error occurred while processing Spotify data: " + e.getMessage()).queue();
+                logger.error("Error processing Spotify input", e);
             }
         } else if (message.equalsIgnoreCase("!skip")) {
             handleSkipCommand(guild, messageChannel, trackScheduler);
@@ -220,6 +242,58 @@ public class Spotibot extends ListenerAdapter {
         } else if (message.equalsIgnoreCase("!help")) {
             messageChannel.sendMessage(getHelpMessage()).queue();
         }
+    }
+
+    private void queueAndPlay(String trackTitle, TrackScheduler trackScheduler, GuildMessageChannel messageChannel, Guild guild, String serverFolder) {
+        downloadQueue.offer(() -> {
+            try {
+                String query = "ytsearch:" + trackTitle;
+                String sanitizedSongName = sanitizeFileName(trackTitle);
+                String outputFilePath = serverFolder + sanitizedSongName + ".webm";
+
+                // Download the track
+                File downloadedFile = new File(outputFilePath);
+                if (!downloadedFile.exists()) {
+                    downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel, guild);
+                }
+
+                // Queue the track only if the file exists and hasn't been queued already
+                if (downloadedFile.exists()) {
+                    trackScheduler.queueSong(downloadedFile, trackTitle);
+                    messageChannel.sendMessage(String.format("📍 **Queued:** `%s`", trackTitle)).queue();
+                } else {
+                    messageChannel.sendMessage("Failed to download or queue the track: " + trackTitle).queue();
+                }
+            } catch (IOException | InterruptedException e) {
+                messageChannel.sendMessage("Error downloading or queuing track: " + e.getMessage()).queue();
+                logger.error("Error processing track: " + trackTitle, e);
+            }
+        });
+    }
+
+    private String extractSpotifyId(String url) {
+        if (url.contains("/track/")) {
+            return url.split("/track/")[1].split("\\?")[0];
+        } else if (url.contains("/playlist/")) {
+            String playlistId = url.split("/playlist/")[1].split("\\?")[0];
+            logger.info("Extracted Spotify Playlist ID: " + playlistId);
+            return playlistId;
+        }
+        return null;
+    }
+
+    private void queueYouTubeTrack(String query, TrackScheduler trackScheduler, GuildMessageChannel messageChannel, Guild guild) {
+        String sanitizedSongName = sanitizeFileName(query);
+        String outputFilePath = BASE_DOWNLOAD_FOLDER + guild.getId() + "/" + sanitizedSongName + ".webm";
+
+        downloadQueue.offer(() -> {
+            try {
+                downloadAndQueueSong("ytsearch:" + query, outputFilePath, trackScheduler, messageChannel, guild);
+            } catch (IOException | InterruptedException e) {
+                messageChannel.sendMessage("Error downloading track: " + query).queue();
+                logger.error("Error downloading track: " + query, e);
+            }
+        });
     }
 
     private void handleSkipCommand(Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler) {
@@ -370,23 +444,11 @@ public class Spotibot extends ListenerAdapter {
             downloadProcess.destroyForcibly();
             logger.error("Download process timed out for query: " + query);
             messageChannel.sendMessage("Failed to download song: " + query).queue();
-            return;
         }
 
         File downloadedFile = new File(outputFilePath);
-        if (downloadedFile.exists()) {
-            trackScheduler.queueSong(downloadedFile, query);
-            String displayTitle = query.replace("ytsearch:", "").trim();
-            messageChannel.sendMessage(String.format("📍 **Queued:** `%s`", displayTitle)).queue();
-        } else {
+        if (!downloadedFile.exists()) {
             messageChannel.sendMessage("Failed to download song: " + query).queue();
-
-            // Check if the queue is empty
-            if (trackScheduler.isQueueEmpty()) {
-                messageChannel.sendMessage("Queue is empty and download failed. Stopping the bot.").queue();
-                String serverFolder = BASE_DOWNLOAD_FOLDER + guild.getId() + "/"; // Use guild to construct serverFolder
-                handleStopCommand(guild, messageChannel, trackScheduler, serverFolder); // Pass guild
-            }
         }
     }
 

@@ -10,3 +10,4 @@ Backup.zip
 # Ignore the bot configuration file containing sensitive information
 config.json
 /config
+SpotifyKeys.txt
