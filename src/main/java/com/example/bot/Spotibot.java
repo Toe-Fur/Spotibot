@@ -35,7 +35,7 @@ public class Spotibot extends ListenerAdapter {
     private static String skipEmoji;
     private static String stopEmoji;
     private static String queueEmoji;
-    private static final String BASE_DOWNLOAD_FOLDER = "downloads/";
+    private static final String BASE_DOWNLOAD_FOLDER = "config/downloads/";
 
     public final ConcurrentHashMap<Long, LinkedBlockingQueue<String>> serverQueues = new ConcurrentHashMap<>();
     public final ConcurrentHashMap<Long, LinkedBlockingQueue<String>> serverTitles = new ConcurrentHashMap<>();
