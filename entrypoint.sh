@@ -10,6 +10,9 @@ SKIP_EMOJI="${SKIP_EMOJI:-⏩}"
 STOP_EMOJI="${STOP_EMOJI:-⏹️}"
 QUEUE_EMOJI="${QUEUE_EMOJI:-📝}"
 
+# Ensure the /config directory exists
+mkdir -p /config
+
 # Generate the config.json file
 cat <<EOF > /config/config.json
 {
