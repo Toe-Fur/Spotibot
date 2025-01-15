@@ -177,21 +177,34 @@ public class Spotibot extends ListenerAdapter {
             guild.getAudioManager().openAudioConnection(voiceChannel);
 
             if (isPlaylist(input)) {
-                downloadQueue.offer(() -> {
-                    try {
-                        downloadPlaylist(input, trackScheduler, messageChannel, guild); // Handle playlist
-                    } catch (IOException | InterruptedException e) {
-                        messageChannel.sendMessage("Error downloading playlist: " + e.getMessage()).queue();
-                        logger.error("Error downloading playlist: " + input, e);
-                    }
-                });
+                List<String> playlistTitles;
+                try {
+                    playlistTitles = getYouTubePlaylistTitles(input);
+                } catch (IOException | InterruptedException e) {
+                    messageChannel.sendMessage("Failed to retrieve playlist: " + e.getMessage()).queue();
+                    return;
+                }
+
+                for (String song : playlistTitles) {
+                    downloadQueue.offer(() -> {
+                        try {
+                            String query = "ytsearch:" + input;
+                            String sanitizedSongName = sanitizeFileName(input); // Sanitize the input
+                            String outputFilePath = serverFolder + sanitizedSongName + ".webm";
+                            downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel, guild); // Pass the guild
+                        } catch (IOException | InterruptedException e) {
+                            messageChannel.sendMessage("Error downloading song: " + e.getMessage()).queue();
+                            logger.error("Error downloading song: " + input, e);
+                        }
+                    });
+                }
             } else {
                 downloadQueue.offer(() -> {
                     try {
                         String query = "ytsearch:" + input;
                         String sanitizedSongName = sanitizeFileName(input); // Sanitize the input
                         String outputFilePath = serverFolder + sanitizedSongName + ".webm";
-                        downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel, guild); // Handle single song
+                        downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel, guild); // Pass the correct arguments
                     } catch (IOException | InterruptedException e) {
                         messageChannel.sendMessage("Error downloading song: " + e.getMessage()).queue();
                         logger.error("Error downloading song: " + input, e);
@@ -238,14 +251,18 @@ public class Spotibot extends ListenerAdapter {
     }
 
     private void handleStopCommand(Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler, String serverFolder) {
+        // Line: Add at the start of handleStopCommand
         logger.info("Stopping bot and clearing all states...");
 
         // Clear the queue and stop playback
         trackScheduler.clearQueueAndStop();
-
+        
         // Close the audio connection
         guild.getAudioManager().closeAudioConnection();
-
+        
+        // Clear the downloads folder
+        clearDownloadsFolder(serverFolder);
+        
         // Cancel the current download task if any
         if (currentDownloadTask != null && !currentDownloadTask.isDone()) {
             currentDownloadTask.cancel(true);
@@ -257,7 +274,6 @@ public class Spotibot extends ListenerAdapter {
             currentDownloadTask = null;
         }
 
-        // Interrupt all queued downloads
         downloadExecutor.shutdownNow(); // Interrupt running tasks
         try {
             if (!downloadExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
@@ -275,11 +291,11 @@ public class Spotibot extends ListenerAdapter {
         // Clear the download queue
         downloadQueue.clear();
 
-        // Clear the downloads folder
-        clearDownloadsFolder(serverFolder);
-
+        // Line: Add after clearing the downloadQueue
+        trackSchedulerRegistry.reset();
+        
         // Send a message to confirm the bot state has been reset
-        messageChannel.sendMessage(stopEmoji + " Stopped playback and reset the bot state.").queue();
+        messageChannel.sendMessage(stopEmoji + " Stopped playback and reset the bot state. You can now add new songs.").queue();
     }
 
     private List<String> getYouTubePlaylistTitles(String playlistUrl) throws IOException, InterruptedException {
@@ -300,47 +316,10 @@ public class Spotibot extends ListenerAdapter {
     }
 
     private boolean isPlaylist(String input) {
-        return input.contains("list="); // Detect playlist URLs
+        return input.contains("list=");
     }
 
     private static final String DEFAULT_COOKIE_FILE = new File(System.getProperty("user.dir"), "cookies.txt").getAbsolutePath();
-
-    private void downloadPlaylist(String playlistUrl, TrackScheduler trackScheduler, GuildMessageChannel messageChannel, Guild guild) throws IOException, InterruptedException {
-        ProcessBuilder downloadBuilder = new ProcessBuilder(
-            "yt-dlp",
-            "-4",
-            "-f", "bestaudio",
-            "--yes-playlist",
-            "--cookies", COOKIE_FILE_PATH,
-            "-o", BASE_DOWNLOAD_FOLDER + guild.getId() + "/%(title)s.%(ext)s",
-            playlistUrl
-        );
-
-        Process downloadProcess = downloadBuilder.start();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(downloadProcess.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                logger.info(line);
-            }
-        }
-
-        boolean completedInTime = downloadProcess.waitFor(300, TimeUnit.SECONDS); // Extend time for playlists
-
-        if (!completedInTime || downloadProcess.exitValue() != 0) {
-            downloadProcess.destroyForcibly();
-            logger.error("Failed to download playlist: " + playlistUrl);
-            messageChannel.sendMessage("Failed to download playlist: " + playlistUrl).queue();
-
-            // Leave voice channel if the queue is empty
-            if (trackScheduler.isQueueEmpty()) {
-                messageChannel.sendMessage("Queue is empty and download failed. Leaving the voice channel.").queue();
-                leaveVoiceChannel(guild);
-            }
-            return;
-        }
-
-        messageChannel.sendMessage("Playlist downloaded successfully and added to the queue!").queue();
-    }
 
     private void downloadAndQueueSong(String query, String outputFilePath, TrackScheduler trackScheduler, GuildMessageChannel messageChannel, Guild guild) throws IOException, InterruptedException {
         File cookieFile = new File(COOKIE_FILE_PATH);
@@ -350,15 +329,27 @@ public class Spotibot extends ListenerAdapter {
             messageChannel.sendMessage("No cookies found. YouTube may restrict access to certain videos.").queue();
         }
 
-        ProcessBuilder downloadBuilder = new ProcessBuilder(
-            "yt-dlp",
-            "-4",
-            "-f", "bestaudio",
-            "--no-playlist",
-            "--cookies", cookieFile.exists() ? cookieFile.getAbsolutePath() : null,
-            "-o", outputFilePath,
-            query
-        );
+        ProcessBuilder downloadBuilder;
+        if (cookieFile.exists()) {
+            downloadBuilder = new ProcessBuilder(
+                "yt-dlp",
+                "-4",
+                "-f", "bestaudio",
+                "--no-playlist",
+                "--cookies", cookieFile.getAbsolutePath(),
+                "-o", outputFilePath,
+                query
+            );
+        } else {
+            downloadBuilder = new ProcessBuilder(
+                "yt-dlp",
+                "-4",
+                "-f", "bestaudio",
+                "--no-playlist",
+                "-o", outputFilePath,
+                query
+            );
+        }
 
         Process downloadProcess = downloadBuilder.start();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(downloadProcess.getInputStream()))) {
@@ -375,6 +366,7 @@ public class Spotibot extends ListenerAdapter {
             logger.error("Download process failed or timed out for query: " + query);
             messageChannel.sendMessage("Failed to download song: " + query).queue();
 
+            // Check if the queue is empty, and if so, make the bot leave the channel
             if (trackScheduler.isQueueEmpty()) {
                 messageChannel.sendMessage("Queue is empty and download failed. Leaving the voice channel.").queue();
                 leaveVoiceChannel(guild);
@@ -385,17 +377,12 @@ public class Spotibot extends ListenerAdapter {
         File downloadedFile = new File(outputFilePath);
         if (downloadedFile.exists()) {
             trackScheduler.queueSong(downloadedFile, query);
-
-            // If no track is currently playing, start playing immediately
-            if (trackScheduler.getPlayer().getPlayingTrack() == null) {
-                trackScheduler.nextTrack();
-            }
-
             String displayTitle = query.replace("ytsearch:", "").trim();
             messageChannel.sendMessage(String.format("📍 **Queued:** `%s`", displayTitle)).queue();
         } else {
             messageChannel.sendMessage("Failed to download song: " + query).queue();
 
+            // Check if the queue is empty, and if so, make the bot leave the channel
             if (trackScheduler.isQueueEmpty()) {
                 messageChannel.sendMessage("Queue is empty and download failed. Leaving the voice channel.").queue();
                 leaveVoiceChannel(guild);
