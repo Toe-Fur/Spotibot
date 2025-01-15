@@ -404,13 +404,16 @@ public class Spotibot extends ListenerAdapter {
         for (AudioTrack track : playbackQueue) {
             String title = trackScheduler.getTitle(track.getIdentifier()).replace("ytsearch:", "").trim();
             queueMessage.append("📍 ").append(index++).append(". ").append(title != null ? title : "Unknown Title").append("\n");
+
+            if (queueMessage.length() > 1900) { // Leave room for additional data
+                event.getChannel().sendMessage(queueMessage.toString()).queue();
+                queueMessage.setLength(0); // Reset for next chunk
+            }
         }
 
-        if (playbackQueue.isEmpty()) {
-            queueMessage.append("The queue is empty.");
+        if (queueMessage.length() > 0) {
+            event.getChannel().sendMessage(queueMessage.toString()).queue();
         }
-
-        event.getChannel().sendMessage(queueMessage.toString()).queue();
     }
 
     private String sanitizeFileName(String input) {
