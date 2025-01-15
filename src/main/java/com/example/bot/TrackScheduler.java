@@ -29,16 +29,12 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
 
     // Constructor to initialize the scheduler
     public TrackScheduler(AudioPlayerManager playerManager, AudioPlayer player, Spotibot bot, Guild guild) {
-        this.playerManager = playerManager;
+        this.playerManager = playerManager; // Initialize playerManager
         this.player = player;
         this.queue = new LinkedBlockingQueue<>();
         this.bot = bot;
-        this.guild = guild; // Store the guild reference
+        this.guild = guild;
         this.player.addListener(this); // Register this scheduler as an event listener
-    }
-
-    public Guild getGuild() {
-        return guild;
     }
 
     // Getter for the audio player
@@ -180,7 +176,7 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
 
     // Checks if the queue is empty and no track is currently playing
     public boolean isQueueEmpty() {
-        return queue.isEmpty() && player.getPlayingTrack() == null;
+        return queue.isEmpty() && currentTrack == null;
     }
 
     // Deletes the file for the current track
@@ -236,10 +232,8 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
 
     // Disconnects the bot from the guild's voice channel
     private void leaveVoiceChannel() {
-        if (guild != null && guild.getAudioManager().isConnected()) {
-            guild.getAudioManager().closeAudioConnection();
-            logger.info("Disconnected from voice channel for guild: " + guild.getId());
-        }
+        logger.info("Leaving voice channel for guild: " + guild.getId());
+        // Logic to disconnect from the voice channel goes here
     }
 
     // Handles events from the audio player

@@ -188,13 +188,13 @@ public class Spotibot extends ListenerAdapter {
                 for (String song : playlistTitles) {
                     downloadQueue.offer(() -> {
                         try {
-                            String query = "ytsearch:" + input;
-                            String sanitizedSongName = sanitizeFileName(input); // Sanitize the input
+                            String query = "ytsearch:" + song;
+                            String sanitizedSongName = sanitizeFileName(song); // Sanitize the song name
                             String outputFilePath = serverFolder + sanitizedSongName + ".webm";
-                            downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel, guild); // Pass the guild
+                            downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel); // Pass the correct arguments
                         } catch (IOException | InterruptedException e) {
                             messageChannel.sendMessage("Error downloading song: " + e.getMessage()).queue();
-                            logger.error("Error downloading song: " + input, e);
+                            logger.error("Error downloading song: " + song, e);
                         }
                     });
                 }
@@ -204,7 +204,7 @@ public class Spotibot extends ListenerAdapter {
                         String query = "ytsearch:" + input;
                         String sanitizedSongName = sanitizeFileName(input); // Sanitize the input
                         String outputFilePath = serverFolder + sanitizedSongName + ".webm";
-                        downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel, guild); // Pass the correct arguments
+                        downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel); // Pass the correct arguments
                     } catch (IOException | InterruptedException e) {
                         messageChannel.sendMessage("Error downloading song: " + e.getMessage()).queue();
                         logger.error("Error downloading song: " + input, e);
@@ -321,7 +321,7 @@ public class Spotibot extends ListenerAdapter {
 
     private static final String DEFAULT_COOKIE_FILE = new File(System.getProperty("user.dir"), "cookies.txt").getAbsolutePath();
 
-    private void downloadAndQueueSong(String query, String outputFilePath, TrackScheduler trackScheduler, GuildMessageChannel messageChannel, Guild guild) throws IOException, InterruptedException {
+    private void downloadAndQueueSong(String query, String outputFilePath, TrackScheduler trackScheduler, GuildMessageChannel messageChannel) throws IOException, InterruptedException {
         File cookieFile = new File(COOKIE_FILE_PATH);
 
         if (!cookieFile.exists()) {
@@ -361,16 +361,10 @@ public class Spotibot extends ListenerAdapter {
 
         boolean completedInTime = downloadProcess.waitFor(120, TimeUnit.SECONDS);
 
-        if (!completedInTime || downloadProcess.exitValue() != 0) {
+        if (!completedInTime) {
             downloadProcess.destroyForcibly();
-            logger.error("Download process failed or timed out for query: " + query);
+            logger.error("Download process timed out for query: " + query);
             messageChannel.sendMessage("Failed to download song: " + query).queue();
-
-            // Check if the queue is empty, and if so, make the bot leave the channel
-            if (trackScheduler.isQueueEmpty()) {
-                messageChannel.sendMessage("Queue is empty and download failed. Leaving the voice channel.").queue();
-                leaveVoiceChannel(guild);
-            }
             return;
         }
 
@@ -381,19 +375,6 @@ public class Spotibot extends ListenerAdapter {
             messageChannel.sendMessage(String.format("📍 **Queued:** `%s`", displayTitle)).queue();
         } else {
             messageChannel.sendMessage("Failed to download song: " + query).queue();
-
-            // Check if the queue is empty, and if so, make the bot leave the channel
-            if (trackScheduler.isQueueEmpty()) {
-                messageChannel.sendMessage("Queue is empty and download failed. Leaving the voice channel.").queue();
-                leaveVoiceChannel(guild);
-            }
-        }
-    }
-
-    private void leaveVoiceChannel(Guild guild) {
-        if (guild != null && guild.getAudioManager().isConnected()) {
-            guild.getAudioManager().closeAudioConnection();
-            logger.info("Disconnected from voice channel for guild: " + guild.getId());
         }
     }
 
