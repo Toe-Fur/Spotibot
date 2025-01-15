@@ -16,6 +16,10 @@ import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Collections;
+
 public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.event.AudioEventListener {
     private static final Logger logger = LoggerFactory.getLogger(TrackScheduler.class);
 
@@ -35,6 +39,16 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
         this.bot = bot;
         this.guild = guild;
         this.player.addListener(this); // Register this scheduler as an event listener
+    }
+
+    public void shuffle() {
+        synchronized (queue) {
+            List<AudioTrack> trackList = new ArrayList<>(queue);
+            Collections.shuffle(trackList);
+            queue.clear();
+            queue.addAll(trackList);
+            logger.info("Shuffled the queue.");
+        }
     }
 
     // Getter for the audio player
@@ -99,6 +113,16 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
         } else {
             logger.warn("No track is currently playing to delete.");
             return false;
+        }
+    }
+
+    public void playNext(AudioTrack track) {
+        synchronized (queue) {
+            List<AudioTrack> trackList = new ArrayList<>(queue);
+            trackList.add(0, track); // Add the track to the front of the queue
+            queue.clear();
+            queue.addAll(trackList);
+            logger.info("Added track to play next: " + track.getInfo().title);
         }
     }
 
