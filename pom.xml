@@ -30,26 +30,47 @@
     </repositories>
 
     <dependencies>
+        <!-- JDA -->
         <dependency>
             <groupId>net.dv8tion</groupId>
             <artifactId>JDA</artifactId>
             <version>5.2.1</version>
         </dependency>
+
+        <!-- OkHttp -->
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
             <artifactId>okhttp</artifactId>
             <version>4.11.0</version>
         </dependency>
+
+        <!-- Apache HttpClient -->
         <dependency>
             <groupId>org.apache.httpcomponents.client5</groupId>
             <artifactId>httpclient5</artifactId>
             <version>5.2</version>
         </dependency>
+
+        <!-- LavaPlayer with ARM support -->
         <dependency>
             <groupId>com.sedmelluq</groupId>
             <artifactId>lavaplayer</artifactId>
             <version>1.3.77</version>
         </dependency>
+
+        <!-- Native Support for ARM -->
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.13.0</version>
+        </dependency>
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna-platform</artifactId>
+            <version>5.13.0</version>
+        </dependency>
+
+        <!-- Logging -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-simple</artifactId>
@@ -59,6 +80,7 @@
 
     <build>
         <plugins>
+            <!-- Compiler Plugin -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -69,6 +91,7 @@
                 </configuration>
             </plugin>
 
+            <!-- JAR Plugin -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
@@ -78,6 +101,7 @@
                 </configuration>
             </plugin>
 
+            <!-- Shade Plugin -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
@@ -99,37 +123,15 @@
                         </configuration>
                     </execution>
                 </executions>
-                <configuration>
-                    <!-- Mark the shaded JAR as the primary artifact -->
-                    <shadedArtifactAttached>false</shadedArtifactAttached>
-                </configuration>
             </plugin>
 
-            <plugin>
-                  <groupId>org.apache.maven.plugins</groupId>
-                  <artifactId>maven-shade-plugin</artifactId>
-                  <version>3.4.1</version>
-                  <executions>
-                    <execution>
-                      <phase>package</phase>
-                      <goals>
-                        <goal>shade</goal>
-                      </goals>
-                      <configuration>
-                        <finalName>Spotibot</finalName>
-                        <createDependencyReducedPom>false</createDependencyReducedPom>
-                      </configuration>
-                    </execution>
-                  </executions>
-                </plugin>
-
+            <!-- AntRun Plugin -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-antrun-plugin</artifactId>
                 <version>3.0.0</version>
                 <executions>
                     <execution>
-                        <!-- Delete the temp JAR after the install phase -->
                         <phase>install</phase>
                         <configuration>
                             <target>
