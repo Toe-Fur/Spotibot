@@ -57,6 +57,7 @@ public class Spotibot extends ListenerAdapter {
     public static void main(String[] args) {
         createConfigFolder();
         ensureConfigFileExists();
+        ensureSpotifyConfigExists();
         loadConfig();
 
         File cookieFile = new File(COOKIE_FILE_PATH);
@@ -78,6 +79,23 @@ public class Spotibot extends ListenerAdapter {
                 .build();
         } catch (Exception e) {
             e.printStackTrace();
+        }
+    }
+
+    private static void ensureSpotifyConfigExists() {
+        String spotifyConfigPath = CONFIG_FOLDER + "spotifyconfig.json";
+        File spotifyConfigFile = new File(spotifyConfigPath);
+
+        if (!spotifyConfigFile.exists()) {
+            try (FileWriter writer = new FileWriter(spotifyConfigFile)) {
+                writer.write("{\n" +
+                        "  \"client_id\": \"YOUR_SPOTIFY_CLIENT_ID\",\n" +
+                        "  \"client_secret\": \"YOUR_SPOTIFY_CLIENT_SECRET\"\n" +
+                        "}");
+                logger.info("Created default spotifyconfig.json file in the config folder.");
+            } catch (IOException e) {
+                logger.error("Failed to create spotifyconfig.json: " + e.getMessage(), e);
+            }
         }
     }
 
