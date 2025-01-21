@@ -178,6 +178,7 @@ public class Spotibot extends ListenerAdapter {
                 guild.getAudioManager().setSendingHandler(new AudioPlayerSendHandler(trackScheduler.getPlayer()));
                 guild.getAudioManager().openAudioConnection(voiceChannel);
 
+<<<<<<< HEAD
                 if (input.contains("youtube.com") || input.contains("youtu.be") || input.contains("ytsearch:")) {
                     if (isPlaylist(input)) {
                         List<String> playlistTitles = getYouTubePlaylistTitles(input);
@@ -198,6 +199,57 @@ public class Spotibot extends ListenerAdapter {
                         for (String trackTitle : trackTitles) {
                             queueAndPlay(trackTitle, trackScheduler, messageChannel, guild, serverFolder);
                         }
+=======
+                if (input.contains("spotify.com/track")) {
+                    String trackId = extractSpotifyId(input);
+                    String trackTitle = SpotifyUtils.getTrackTitle(trackId);
+                    queueAndPlay(trackTitle, trackScheduler, messageChannel, guild, serverFolder);
+                } else if (input.contains("spotify.com/playlist")) {
+                    String playlistId = extractSpotifyId(input);
+                    List<String> trackTitles = SpotifyUtils.getPlaylistTracks(playlistId);
+
+                    for (String trackTitle : trackTitles) {
+                        queueAndPlay(trackTitle, trackScheduler, messageChannel, guild, serverFolder);
+                    }
+                } else {
+                    guild.getAudioManager().setSendingHandler(new AudioPlayerSendHandler(trackScheduler.getPlayer()));
+                    guild.getAudioManager().openAudioConnection(voiceChannel);
+
+                    if (isPlaylist(input)) {
+                        List<String> playlistTitles;
+                        try {
+                            playlistTitles = getYouTubePlaylistTitles(input);
+                        } catch (IOException | InterruptedException e) {
+                            messageChannel.sendMessage("Failed to retrieve playlist: " + e.getMessage()).queue();
+                            return;
+                        }
+
+                        for (String song : playlistTitles) {
+                            downloadQueue.offer(() -> {
+                                try {
+                                    String query = "ytsearch:" + song;
+                                    String sanitizedSongName = sanitizeFileName(song); // Sanitize the song name
+                                    String outputFilePath = serverFolder + sanitizedSongName + ".webm";
+                                    downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel, guild);
+                                } catch (IOException | InterruptedException e) {
+                                    messageChannel.sendMessage("Error downloading song: " + e.getMessage()).queue();
+                                    logger.error("Error downloading song: " + song, e);
+                                }
+                            });
+                        }
+                    } else {
+                        downloadQueue.offer(() -> {
+                            try {
+                                String query = "ytsearch:" + input;
+                                String sanitizedSongName = sanitizeFileName(input); // Sanitize the input
+                                String outputFilePath = serverFolder + sanitizedSongName + ".webm";
+                                downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel, guild);
+                            } catch (IOException | InterruptedException e) {
+                                messageChannel.sendMessage("Error downloading song: " + e.getMessage()).queue();
+                                logger.error("Error downloading song: " + input, e);
+                            }
+                        });
+>>>>>>> parent of 04ff66c (added !shuffle and !playnext)
                     }
                 }
             } catch (Exception e) {
