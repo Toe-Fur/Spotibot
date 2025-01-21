@@ -14,7 +14,6 @@ import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import com.example.bot.Spotibot; // Add this import
 
 public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.event.AudioEventListener {
     private static final Logger logger = LoggerFactory.getLogger(TrackScheduler.class);
@@ -25,14 +24,11 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
     private final LinkedBlockingQueue<AudioTrack> queue; // Queue for managing tracks
     private AudioTrack currentTrack; // The track currently playing
     private final Guild guild; // The guild associated with this scheduler
-    private final Spotibot bot; // Reference to the main bot instance
-
     // Constructor to initialize the scheduler
     public TrackScheduler(AudioPlayerManager playerManager, AudioPlayer player, Spotibot bot, Guild guild) {
         this.playerManager = playerManager; // Initialize playerManager
         this.player = player;
         this.queue = new LinkedBlockingQueue<>();
-        this.bot = bot;
         this.guild = guild;
         this.player.addListener(this); // Register this scheduler as an event listener
     }
@@ -188,22 +184,6 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
                 deleteFile(fileName);
             }
             currentTrack = null;
-        }
-    }
-
-    // Deletes the file associated with a specific track
-    private void deleteTrackFile(AudioTrack track) {
-        Object userData = track.getUserData();
-        if (userData instanceof String) {
-            File trackFile = new File((String) userData);
-            if (trackFile.exists() && trackFile.isFile()) {
-                boolean deleted = trackFile.delete();
-                if (deleted) {
-                    logger.info("Deleted track file: " + trackFile.getAbsolutePath());
-                } else {
-                    logger.error("Failed to delete track file: " + trackFile.getAbsolutePath());
-                }
-            }
         }
     }
 

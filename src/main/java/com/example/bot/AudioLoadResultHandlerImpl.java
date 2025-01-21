@@ -17,8 +17,6 @@ import java.io.File;
 public class AudioLoadResultHandlerImpl implements AudioLoadResultHandler {
     private static final Logger logger = LoggerFactory.getLogger(AudioLoadResultHandlerImpl.class);
 
-    // The audio player responsible for playback
-    private final AudioPlayer player;
     // The channel to send user messages
     private final GuildMessageChannel messageChannel;
     // The track scheduler managing the queue
@@ -30,7 +28,6 @@ public class AudioLoadResultHandlerImpl implements AudioLoadResultHandler {
 
     // Constructor to initialize handler components
     public AudioLoadResultHandlerImpl(AudioPlayer player, GuildMessageChannel messageChannel, TrackScheduler trackScheduler, File audioFile, String trackTitle) {
-        this.player = player;
         this.messageChannel = messageChannel;
         this.trackScheduler = trackScheduler;
         this.audioFile = audioFile;

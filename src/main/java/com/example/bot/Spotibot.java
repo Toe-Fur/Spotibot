@@ -8,9 +8,11 @@ import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
+import net.dv8tion.jda.api.events.message.react.MessageReactionAddEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.entities.Activity;
+import net.dv8tion.jda.api.entities.emoji.Emoji;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -19,11 +21,8 @@ import java.io.*;
 import java.util.*;
 import java.util.concurrent.*;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
-import com.example.bot.SpotifyUtils;
-import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import com.example.bot.AudioPlayerSendHandler;
 
 public class Spotibot extends ListenerAdapter {
     private static final Logger logger = LoggerFactory.getLogger(Spotibot.class);
@@ -35,16 +34,14 @@ public class Spotibot extends ListenerAdapter {
     private static String BOT_TOKEN;
     private static String STATUS;
     private static int defaultVolume = 60;
-    private static String nowPlayingFormat;
-    private static String queuedFormat;
     private static String skipEmoji;
     private static String stopEmoji;
-    private static String queueEmoji;
     private static final String BASE_DOWNLOAD_FOLDER = "config/downloads/";
+    private static final int QUEUE_PAGE_SIZE = 5;
 
     public final ConcurrentHashMap<Long, LinkedBlockingQueue<String>> serverQueues = new ConcurrentHashMap<>();
     public final ConcurrentHashMap<Long, LinkedBlockingQueue<String>> serverTitles = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<Long, String> currentlyPlayingTitles = new ConcurrentHashMap<>();
+    private final Map<Long, Integer> queuePageMap = new ConcurrentHashMap<>();
 
     private static final String CONFIG_FOLDER = "./config/";
     private static final String CONFIG_FILE_PATH = CONFIG_FOLDER + "config.json";
@@ -134,11 +131,8 @@ public class Spotibot extends ListenerAdapter {
             BOT_TOKEN = config.get("bot_token").asText();
             STATUS = config.get("status").asText();
             defaultVolume = config.get("default_volume").asInt(60);
-            nowPlayingFormat = config.get("queue_format").get("now_playing").asText();
-            queuedFormat = config.get("queue_format").get("queued").asText();
             skipEmoji = config.get("emojis").get("skip").asText();
             stopEmoji = config.get("emojis").get("stop").asText();
-            queueEmoji = config.get("emojis").get("queue").asText();
 
             if (BOT_TOKEN == null || BOT_TOKEN.isEmpty()) {
                 logger.error("Bot token is missing in the config file.");
@@ -216,10 +210,31 @@ public class Spotibot extends ListenerAdapter {
         } else if (message.equalsIgnoreCase("!stop")) {
             handleStopCommand(guild, messageChannel, trackScheduler, serverFolder);
         } else if (message.equalsIgnoreCase("!queue")) {
-            showQueue(event, trackScheduler);
+            showQueue(event, trackScheduler, 0);
         } else if (message.equalsIgnoreCase("!help")) {
             messageChannel.sendMessage(getHelpMessage()).queue();
         }
+    }
+
+    @Override
+    public void onMessageReactionAdd(MessageReactionAddEvent event) {
+        if (event.getUser().isBot()) return;
+
+        String emoji = event.getEmoji().getName();
+        Guild guild = event.getGuild();
+        TrackScheduler trackScheduler = trackSchedulerRegistry.getOrCreate(guild, this, playerManager.createPlayer());
+
+        int currentPage = queuePageMap.getOrDefault(guild.getIdLong(), 0);
+
+        if (emoji.equals("⬅️")) {
+            if (currentPage > 0) {
+                showQueue(event, trackScheduler, currentPage - 1);
+            }
+        } else if (emoji.equals("➡️")) {
+            showQueue(event, trackScheduler, currentPage + 1);
+        }
+
+        event.getReaction().removeReaction(event.getUser()).queue();
     }
 
     private void queueAndPlay(String trackTitle, TrackScheduler trackScheduler, GuildMessageChannel messageChannel, Guild guild, String serverFolder) {
@@ -258,20 +273,6 @@ public class Spotibot extends ListenerAdapter {
             return playlistId;
         }
         return null;
-    }
-
-    private void queueYouTubeTrack(String query, TrackScheduler trackScheduler, GuildMessageChannel messageChannel, Guild guild) {
-        String sanitizedSongName = sanitizeFileName(query);
-        String outputFilePath = BASE_DOWNLOAD_FOLDER + guild.getId() + "/" + sanitizedSongName + ".webm";
-
-        downloadQueue.offer(() -> {
-            try {
-                downloadAndQueueSong("ytsearch:" + query, outputFilePath, trackScheduler, messageChannel, guild);
-            } catch (IOException | InterruptedException e) {
-                messageChannel.sendMessage("Error downloading track: " + query).queue();
-                logger.error("Error downloading track: " + query, e);
-            }
-        });
     }
 
     private void handleSkipCommand(Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler) {
@@ -380,8 +381,6 @@ public class Spotibot extends ListenerAdapter {
         return input.contains("list=");
     }
 
-    private static final String DEFAULT_COOKIE_FILE = new File(System.getProperty("user.dir"), "cookies.txt").getAbsolutePath();
-
     private void downloadAndQueueSong(String query, String outputFilePath, TrackScheduler trackScheduler, GuildMessageChannel messageChannel, Guild guild) throws IOException, InterruptedException {
         File cookieFile = new File(COOKIE_FILE_PATH);
 
@@ -434,7 +433,7 @@ public class Spotibot extends ListenerAdapter {
         }
     }
 
-    private void showQueue(MessageReceivedEvent event, TrackScheduler trackScheduler) {
+    private void showQueue(MessageReceivedEvent event, TrackScheduler trackScheduler, int page) {
         LinkedBlockingQueue<AudioTrack> playbackQueue = trackScheduler.getQueue();
         StringBuilder queueMessage = new StringBuilder("🎶 **Now Playing and Queue** 🎶\n");
 
@@ -444,20 +443,54 @@ public class Spotibot extends ListenerAdapter {
             queueMessage.append("🎵 Now Playing: ").append(title != null ? title : "Unknown Title").append("\n");
         }
 
-        int index = 1;
-        for (AudioTrack track : playbackQueue) {
+        int startIndex = page * QUEUE_PAGE_SIZE;
+        int endIndex = Math.min(startIndex + QUEUE_PAGE_SIZE, playbackQueue.size());
+
+        List<AudioTrack> trackList = new ArrayList<>(playbackQueue);
+        for (int i = startIndex; i < endIndex; i++) {
+            AudioTrack track = trackList.get(i);
             String title = trackScheduler.getTitle(track.getIdentifier()).replace("ytsearch:", "").trim();
-            queueMessage.append("📍 ").append(index++).append(". ").append(title != null ? title : "Unknown Title").append("\n");
+            queueMessage.append("📍 ").append(i + 1).append(". ").append(title != null ? title : "Unknown Title").append("\n");
+        }
 
-            if (queueMessage.length() > 1900) { // Leave room for additional data
-                event.getChannel().sendMessage(queueMessage.toString()).queue();
-                queueMessage.setLength(0); // Reset for next chunk
+        queuePageMap.put(event.getGuild().getIdLong(), page);
+
+        event.getChannel().sendMessage(queueMessage.toString()).queue(message -> {
+            if (playbackQueue.size() > QUEUE_PAGE_SIZE) {
+                message.addReaction(Emoji.fromUnicode("⬅️")).queue();
+                message.addReaction(Emoji.fromUnicode("➡️")).queue();
             }
+        });
+    }
+
+    private void showQueue(MessageReactionAddEvent event, TrackScheduler trackScheduler, int page) {
+        LinkedBlockingQueue<AudioTrack> playbackQueue = trackScheduler.getQueue();
+        StringBuilder queueMessage = new StringBuilder("🎶 **Now Playing and Queue** 🎶\n");
+
+        AudioTrack currentTrack = trackScheduler.getCurrentTrack();
+        if (currentTrack != null) {
+            String title = trackScheduler.getTitle(currentTrack.getIdentifier()).replace("ytsearch:", "").trim();
+            queueMessage.append("🎵 Now Playing: ").append(title != null ? title : "Unknown Title").append("\n");
         }
 
-        if (queueMessage.length() > 0) {
-            event.getChannel().sendMessage(queueMessage.toString()).queue();
+        int startIndex = page * QUEUE_PAGE_SIZE;
+        int endIndex = Math.min(startIndex + QUEUE_PAGE_SIZE, playbackQueue.size());
+
+        List<AudioTrack> trackList = new ArrayList<>(playbackQueue);
+        for (int i = startIndex; i < endIndex; i++) {
+            AudioTrack track = trackList.get(i);
+            String title = trackScheduler.getTitle(track.getIdentifier()).replace("ytsearch:", "").trim();
+            queueMessage.append("📍 ").append(i + 1).append(". ").append(title != null ? title : "Unknown Title").append("\n");
         }
+
+        queuePageMap.put(event.getGuild().getIdLong(), page);
+
+        event.getChannel().sendMessage(queueMessage.toString()).queue(message -> {
+            if (playbackQueue.size() > QUEUE_PAGE_SIZE) {
+                message.addReaction(Emoji.fromUnicode("⬅️")).queue();
+                message.addReaction(Emoji.fromUnicode("➡️")).queue();
+            }
+        });
     }
 
     private String sanitizeFileName(String input) {
