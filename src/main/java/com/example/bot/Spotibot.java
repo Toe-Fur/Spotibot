@@ -13,6 +13,7 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.entities.Activity;
 import net.dv8tion.jda.api.entities.emoji.Emoji;
+import net.dv8tion.jda.api.entities.Message;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -42,6 +43,7 @@ public class Spotibot extends ListenerAdapter {
     public final ConcurrentHashMap<Long, LinkedBlockingQueue<String>> serverQueues = new ConcurrentHashMap<>();
     public final ConcurrentHashMap<Long, LinkedBlockingQueue<String>> serverTitles = new ConcurrentHashMap<>();
     private final Map<Long, Integer> queuePageMap = new ConcurrentHashMap<>();
+    private final Map<Long, Message> queueMessages = new ConcurrentHashMap<>();
 
     private static final String CONFIG_FOLDER = "./config/";
     private static final String CONFIG_FILE_PATH = CONFIG_FOLDER + "config.json";
@@ -253,7 +255,7 @@ public class Spotibot extends ListenerAdapter {
                 // Queue the track only if the file exists and hasn't been queued already
                 if (downloadedFile.exists()) {
                     trackScheduler.queueSong(downloadedFile, trackTitle);
-                    messageChannel.sendMessage(String.format("📍 **Queued:** `%s`", trackTitle)).queue();
+                    updateQueueMessage(guild, trackScheduler, 0);
                 } else {
                     messageChannel.sendMessage("Failed to download or queue the track: " + trackTitle).queue();
                 }
@@ -516,5 +518,41 @@ public class Spotibot extends ListenerAdapter {
                "`!queue` - Shows the current queue.\n" +
                "`!help` - Shows this list of commands.\n" +
                "\nNote: Place your `cookies.txt` file in the `config` folder for YouTube authentication.";
+    }
+
+    private void updateQueueMessage(Guild guild, TrackScheduler trackScheduler, int page) {
+        LinkedBlockingQueue<AudioTrack> playbackQueue = trackScheduler.getQueue();
+        StringBuilder queueMessage = new StringBuilder("🎶 **Now Playing and Queue** 🎶\n");
+
+        AudioTrack currentTrack = trackScheduler.getCurrentTrack();
+        if (currentTrack != null) {
+            String title = trackScheduler.getTitle(currentTrack.getIdentifier()).replace("ytsearch:", "").trim();
+            queueMessage.append("🎵 Now Playing: ").append(title != null ? title : "Unknown Title").append("\n");
+        }
+
+        int startIndex = page * QUEUE_PAGE_SIZE;
+        int endIndex = Math.min(startIndex + QUEUE_PAGE_SIZE, playbackQueue.size());
+
+        List<AudioTrack> trackList = new ArrayList<>(playbackQueue);
+        for (int i = startIndex; i < endIndex; i++) {
+            AudioTrack track = trackList.get(i);
+            String title = trackScheduler.getTitle(track.getIdentifier()).replace("ytsearch:", "").trim();
+            queueMessage.append("📍 ").append(i + 1).append(". ").append(title != null ? title : "Unknown Title").append("\n");
+        }
+
+        queuePageMap.put(guild.getIdLong(), page);
+
+        Message queueMessageObj = queueMessages.get(guild.getIdLong());
+        if (queueMessageObj == null) {
+            guild.getDefaultChannel().sendMessage(queueMessage.toString()).queue(message -> {
+                queueMessages.put(guild.getIdLong(), message);
+                if (playbackQueue.size() > QUEUE_PAGE_SIZE) {
+                    message.addReaction(Emoji.fromUnicode("⬅️")).queue();
+                    message.addReaction(Emoji.fromUnicode("➡️")).queue();
+                }
+            });
+        } else {
+            queueMessageObj.editMessage(queueMessage.toString()).queue();
+        }
     }
 }
