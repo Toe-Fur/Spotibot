@@ -4,8 +4,6 @@
 
 Spotibot is a Java-based music bot that allows users to play and manage audio tracks seamlessly. This bot can be run locally or deployed on a server, providing a robust solution for music streaming and scheduling.
 
-
-
 # Project Setup and Compilation Guide
 
 ## Requirements
@@ -13,8 +11,6 @@ This project requires the following tools:
 - **Maven** (build tool)
 - **Java 17 JDK** (Java Development Kit)
 - **YT-DLP**
-
-
 
 ## Compilation and Running the Project
 
@@ -66,13 +62,11 @@ The bot requires a `config.json` file in the `bots` directory. You can create th
 
 ![image](https://github.com/user-attachments/assets/8ac13fd5-6e14-480a-bd65-da4c7a397490)
 
-
 ## Features
 - Play audio tracks from a variety of sources
 - Manage track scheduling and playlists
 - Built-in audio player handlers
 - Customizable configurations
-
 
 ## Troubleshooting
 If you encounter any issues:
@@ -82,7 +76,7 @@ If you encounter any issues:
 - Review project configuration settings in the `config.json` file.
 
 ## Docker Run
-'''
+```bash
 docker run -e BOT_TOKEN="your discord token" \
            -e STATUS="Streaming tunes" \
            -e DEFAULT_VOLUME=75 \
@@ -92,17 +86,17 @@ docker run -e BOT_TOKEN="your discord token" \
            -e STOP_EMOJI="⏹" \
            -e QUEUE_EMOJI="🗒" \
            ghcr.io/toe-fur/spotibot:beta
+```
+
 ## Authentication 
 - Export your YouTube cookies using a browser extension (e.g., EditThisCookie).
 - Save the cookies as a cookies.txt file.
 - Place the cookies.txt file in the same folder as the config.json
 - Run the bot. Spotibot will automatically use your cookies for YouTube requests.
 
-
 For further assistance, consult:
 - [Maven Documentation](https://maven.apache.org/)
 - [Spotibot Issues](https://github.com/your-username/your-repo/issues) (if applicable)
-
 
 ## License
 This project is licensed under the MIT License.

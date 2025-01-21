@@ -6,7 +6,6 @@ import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackEndReason;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import java.io.File;
 import java.util.concurrent.LinkedBlockingQueue;
 import net.dv8tion.jda.api.entities.Guild;
@@ -15,6 +14,7 @@ import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import com.example.bot.Spotibot; // Add this import
 
 public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.event.AudioEventListener {
     private static final Logger logger = LoggerFactory.getLogger(TrackScheduler.class);

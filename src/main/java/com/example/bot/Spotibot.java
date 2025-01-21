@@ -20,6 +20,10 @@ import java.util.*;
 import java.util.concurrent.*;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.example.bot.SpotifyUtils;
+import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import com.example.bot.AudioPlayerSendHandler;
 
 public class Spotibot extends ListenerAdapter {
     private static final Logger logger = LoggerFactory.getLogger(Spotibot.class);
@@ -190,48 +194,22 @@ public class Spotibot extends ListenerAdapter {
                         queueAndPlay(trackTitle, trackScheduler, messageChannel, guild, serverFolder);
                     }
                 } else {
-                    guild.getAudioManager().setSendingHandler(new AudioPlayerSendHandler(trackScheduler.getPlayer()));
-                    guild.getAudioManager().openAudioConnection(voiceChannel);
-
                     if (isPlaylist(input)) {
                         List<String> playlistTitles;
                         try {
                             playlistTitles = getYouTubePlaylistTitles(input);
-                        } catch (IOException | InterruptedException e) {
+                            for (String trackTitle : playlistTitles) {
+                                queueAndPlay(trackTitle, trackScheduler, messageChannel, guild, serverFolder);
+                            }
+                        } catch (Exception e) {
                             messageChannel.sendMessage("Failed to retrieve playlist: " + e.getMessage()).queue();
-                            return;
-                        }
-
-                        for (String song : playlistTitles) {
-                            downloadQueue.offer(() -> {
-                                try {
-                                    String query = "ytsearch:" + song;
-                                    String sanitizedSongName = sanitizeFileName(song); // Sanitize the song name
-                                    String outputFilePath = serverFolder + sanitizedSongName + ".webm";
-                                    downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel, guild);
-                                } catch (IOException | InterruptedException e) {
-                                    messageChannel.sendMessage("Error downloading song: " + e.getMessage()).queue();
-                                    logger.error("Error downloading song: " + song, e);
-                                }
-                            });
                         }
                     } else {
-                        downloadQueue.offer(() -> {
-                            try {
-                                String query = "ytsearch:" + input;
-                                String sanitizedSongName = sanitizeFileName(input); // Sanitize the input
-                                String outputFilePath = serverFolder + sanitizedSongName + ".webm";
-                                downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel, guild);
-                            } catch (IOException | InterruptedException e) {
-                                messageChannel.sendMessage("Error downloading song: " + e.getMessage()).queue();
-                                logger.error("Error downloading song: " + input, e);
-                            }
-                        });
+                        queueAndPlay(input, trackScheduler, messageChannel, guild, serverFolder);
                     }
                 }
-            } catch (IOException e) {
-                messageChannel.sendMessage("An error occurred while processing Spotify data: " + e.getMessage()).queue();
-                logger.error("Error processing Spotify input", e);
+            } catch (Exception e) {
+                messageChannel.sendMessage("An error occurred: " + e.getMessage()).queue();
             }
         } else if (message.equalsIgnoreCase("!skip")) {
             handleSkipCommand(guild, messageChannel, trackScheduler);
@@ -312,7 +290,6 @@ public class Spotibot extends ListenerAdapter {
 
     private void startDownloadQueueProcessor() {
         downloadExecutor.submit(() -> {
-            // Line: Replace while(true) in startDownloadQueueProcessor
             while (!Thread.currentThread().isInterrupted()) {
                 try {
                     Runnable downloadTask = downloadQueue.take();
@@ -330,7 +307,6 @@ public class Spotibot extends ListenerAdapter {
     }
 
     private void handleStopCommand(Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler, String serverFolder) {
-        // Line: Add at the start of handleStopCommand
         logger.info("Stopping bot and clearing all states...");
 
         // Clear the queue and stop playback
@@ -370,27 +346,33 @@ public class Spotibot extends ListenerAdapter {
         // Clear the download queue
         downloadQueue.clear();
 
-        // Line: Add after clearing the downloadQueue
         trackSchedulerRegistry.reset();
         
         // Send a message to confirm the bot state has been reset
         messageChannel.sendMessage(stopEmoji + " Stopped playback and reset the bot state. You can now add new songs.").queue();
     }
 
-    private List<String> getYouTubePlaylistTitles(String playlistUrl) throws IOException, InterruptedException {
+    private List<String> getYouTubePlaylistTitles(String playlistUrl) throws IOException {
         List<String> titles = new ArrayList<>();
-        ProcessBuilder builder = new ProcessBuilder("yt-dlp", "--flat-playlist", "--get-title", playlistUrl);
-        builder.redirectErrorStream(true);
-        Process process = builder.start();
+        // Use yt-dlp to fetch playlist details
+        ProcessBuilder pb = new ProcessBuilder("yt-dlp", "--flat-playlist", "-J", playlistUrl);
+        Process process = pb.start();
+        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        StringBuilder jsonOutput = new StringBuilder();
+        String line;
+        while ((line = reader.readLine()) != null) {
+            jsonOutput.append(line);
+        }
+        reader.close();
 
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                titles.add(line);
-            }
+        // Parse the JSON output
+        JSONObject json = new JSONObject(jsonOutput.toString());
+        JSONArray entries = json.getJSONArray("entries");
+        for (int i = 0; i < entries.length(); i++) {
+            JSONObject entry = entries.getJSONObject(i);
+            titles.add(entry.getString("title"));
         }
 
-        process.waitFor();
         return titles;
     }
 

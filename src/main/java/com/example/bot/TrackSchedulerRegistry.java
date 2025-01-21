@@ -5,6 +5,7 @@ import com.sedmelluq.discord.lavaplayer.player.AudioPlayerManager;
 
 import java.util.concurrent.ConcurrentHashMap; // For thread-safe management of schedulers
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayer; // For AudioPlayer
+import com.example.bot.Spotibot; // Add this import
 
 // Handles the creation and management of TrackSchedulers for multiple guilds
 public class TrackSchedulerRegistry {
