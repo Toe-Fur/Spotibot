@@ -5,6 +5,8 @@ import java.io.*;
 import okhttp3.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.json.JSONObject;
+import org.json.JSONArray;
 
 public class SpotifyUtils {
     private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(SpotifyUtils.class);
@@ -142,5 +144,40 @@ public class SpotifyUtils {
             JsonNode json = new ObjectMapper().readTree(responseBody);
             return json.get("name").asText() + " by " + json.get("artists").get(0).get("name").asText();
         }
+    }
+
+    public static String extractSpotifyId(String url) {
+        if (url.contains("/track/")) {
+            return url.split("/track/")[1].split("\\?")[0];
+        } else if (url.contains("/playlist/")) {
+            return url.split("/playlist/")[1].split("\\?")[0];
+        }
+        return null;
+    }
+
+    public static boolean isPlaylist(String input) {
+        return input.contains("list=");
+    }
+
+    public static List<String> getYouTubePlaylistTitles(String playlistUrl) throws IOException {
+        List<String> titles = new ArrayList<>();
+        ProcessBuilder pb = new ProcessBuilder("yt-dlp", "--flat-playlist", "-J", playlistUrl);
+        Process process = pb.start();
+        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        StringBuilder jsonOutput = new StringBuilder();
+        String line;
+        while ((line = reader.readLine()) != null) {
+            jsonOutput.append(line);
+        }
+        reader.close();
+
+        JSONObject json = new JSONObject(jsonOutput.toString());
+        JSONArray entries = json.getJSONArray("entries");
+        for (int i = 0; i < entries.length(); i++) {
+            JSONObject entry = entries.getJSONObject(i);
+            titles.add(entry.getString("title"));
+        }
+
+        return titles;
     }
 }
