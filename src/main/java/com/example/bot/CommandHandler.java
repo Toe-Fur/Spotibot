@@ -69,7 +69,8 @@ public class CommandHandler {
                             messageChannel.sendMessage("Failed to retrieve playlist: " + e.getMessage()).queue();
                         }
                     } else {
-                        DownloadQueueHandler.queueAndPlay(input, trackScheduler, messageChannel, guild, serverFolder, downloadQueue);
+                        String trackTitle = SpotifyUtils.getYouTubeTitle(input);
+                        DownloadQueueHandler.queueAndPlay(trackTitle, trackScheduler, messageChannel, guild, serverFolder, downloadQueue);
                     }
                 }
             } catch (Exception e) {

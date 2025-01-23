@@ -180,4 +180,13 @@ public class SpotifyUtils {
 
         return titles;
     }
+
+    public static String getYouTubeTitle(String videoUrl) throws IOException {
+        ProcessBuilder pb = new ProcessBuilder("yt-dlp", "--get-title", videoUrl);
+        Process process = pb.start();
+        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        String title = reader.readLine();
+        reader.close();
+        return title;
+    }
 }
