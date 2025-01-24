@@ -7,6 +7,8 @@ import com.sedmelluq.discord.lavaplayer.track.AudioTrackEndReason;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.io.File;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.LinkedBlockingQueue;
 import net.dv8tion.jda.api.entities.Guild;
 import com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler;
@@ -41,13 +43,14 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
     // Adds a track to the queue or plays it immediately if nothing is playing
     public void queue(AudioTrack track) {
         track.setUserData(track.getIdentifier()); // Attach a unique identifier for easier tracking
-        logger.info("Queueing track: " + track.getInfo().title + " with identifier: " + track.getIdentifier());
+        String timestamp = getCurrentTimestamp();
+        logger.info("[" + timestamp + "] Queueing track: " + track.getInfo().title + " with identifier: " + track.getIdentifier());
         if (!player.startTrack(track, true)) {
             queue.offer(track);
-            logger.info("Track added to queue: " + track.getInfo().title);
+            logger.info("[" + timestamp + "] Track added to queue: " + track.getInfo().title);
         } else {
             currentTrack = track;
-            logger.info("Now playing: " + track.getInfo().title);
+            logger.info("[" + timestamp + "] Now playing: " + track.getInfo().title);
         }
     }
 
@@ -102,7 +105,8 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
     public void nextTrack() {
         // Save the current track file name for deletion
         String previousTrackFileName = getCurrentTrackFileName();
-        logger.info("Moving to next track. Current track: " + (currentTrack != null ? currentTrack.getInfo().title : "None"));
+        String timestamp = getCurrentTimestamp();
+        logger.info("[" + timestamp + "] Moving to next track. Current track: " + (currentTrack != null ? currentTrack.getInfo().title : "None"));
 
         // Poll the next track from the queue
         currentTrack = queue.poll();
@@ -110,10 +114,10 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
         if (currentTrack != null) {
             // Start the next track
             player.startTrack(currentTrack, false);
-            logger.info("Started next track: " + currentTrack.getInfo().title);
+            logger.info("[" + timestamp + "] Started next track: " + currentTrack.getInfo().title);
         } else {
             // No more tracks in the queue
-            logger.info("Queue is empty. Stopping playback.");
+            logger.info("[" + timestamp + "] Queue is empty. Stopping playback.");
             player.stopTrack();
             leaveVoiceChannel();
         }
@@ -213,7 +217,7 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
     // Disconnects the bot from the guild's voice channel
     private void leaveVoiceChannel() {
         logger.info("Leaving voice channel for guild: " + guild.getId());
-        // Logic to disconnect from the voice channel goes here
+        guild.getAudioManager().closeAudioConnection();
     }
 
     // Handles events from the audio player
@@ -225,7 +229,16 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
                 // Advance to the next track when the current track ends
                 deleteCurrentTrackFile();
                 nextTrack();
+            } else if (isQueueEmpty()) {
+                // Leave the voice channel if the queue is empty
+                leaveVoiceChannel();
             }
         }
+    }
+
+    // Helper method to get the current timestamp
+    private String getCurrentTimestamp() {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        return LocalDateTime.now().format(formatter);
     }
 }

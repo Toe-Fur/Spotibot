@@ -13,11 +13,11 @@ import java.io.InputStreamReader;
 public class DownloadQueueHandler {
     private static final Logger logger = Logger.getLogger(DownloadQueueHandler.class.getName());
 
-    public static void queueAndPlay(String trackTitle, TrackScheduler trackScheduler, GuildMessageChannel messageChannel, Guild guild, String serverFolder, BlockingQueue<Runnable> downloadQueue) {
+    public static void queueAndPlay(String input, TrackScheduler trackScheduler, GuildMessageChannel messageChannel, Guild guild, String serverFolder, BlockingQueue<Runnable> downloadQueue) {
         downloadQueue.offer(() -> {
             try {
-                String query = "ytsearch:" + trackTitle;
-                String sanitizedSongName = sanitizeFileName(trackTitle);
+                String query = input.contains("youtube.com") || input.contains("youtu.be") ? input : "ytsearch:" + input;
+                String sanitizedSongName = sanitizeFileName(input);
                 String outputFilePath = serverFolder + sanitizedSongName + ".webm";
 
                 File downloadedFile = new File(outputFilePath);
@@ -26,14 +26,14 @@ public class DownloadQueueHandler {
                 }
 
                 if (downloadedFile.exists()) {
-                    trackScheduler.queueSong(downloadedFile, trackTitle);
-                    messageChannel.sendMessage(String.format("📍 **Queued:** `%s`", trackTitle)).queue(msg -> msg.suppressEmbeds(true).queue());
+                    trackScheduler.queueSong(downloadedFile, input);
+                    messageChannel.sendMessage(String.format("📍 **Queued:** `%s`", input)).queue(msg -> msg.suppressEmbeds(true).queue());
                 } else {
-                    messageChannel.sendMessage("Failed to download or queue the track: " + trackTitle).queue(msg -> msg.suppressEmbeds(true).queue());
+                    messageChannel.sendMessage("Failed to download or queue the track: " + input).queue(msg -> msg.suppressEmbeds(true).queue());
                 }
             } catch (IOException | InterruptedException e) {
                 messageChannel.sendMessage("Error downloading or queuing track: " + e.getMessage()).queue(msg -> msg.suppressEmbeds(true).queue());
-                logger.severe("Error processing track: " + trackTitle + " - " + e.getMessage());
+                logger.severe("Error processing track: " + input + " - " + e.getMessage());
             }
         });
     }

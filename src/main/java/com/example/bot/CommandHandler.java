@@ -57,6 +57,8 @@ public class CommandHandler {
                     for (String trackTitle : trackTitles) {
                         DownloadQueueHandler.queueAndPlay(trackTitle, trackScheduler, messageChannel, guild, serverFolder, downloadQueue);
                     }
+                } else if (input.contains("youtube.com") || input.contains("youtu.be")) {
+                    DownloadQueueHandler.queueAndPlay(input, trackScheduler, messageChannel, guild, serverFolder, downloadQueue);
                 } else {
                     if (SpotifyUtils.isPlaylist(input)) {
                         List<String> playlistTitles;
@@ -197,8 +199,12 @@ public class CommandHandler {
 
         event.getChannel().sendMessage(queueMessage.toString()).queue(message -> {
             if (playbackQueue.size() > ConfigUtils.QUEUE_PAGE_SIZE) {
-                message.addReaction(Emoji.fromUnicode("⬅️")).queue();
-                message.addReaction(Emoji.fromUnicode("➡️")).queue();
+                if (page > 0) {
+                    message.addReaction(Emoji.fromUnicode("⬅️")).queue();
+                }
+                if (endIndex < playbackQueue.size()) {
+                    message.addReaction(Emoji.fromUnicode("➡️")).queue();
+                }
             }
         });
     }
@@ -227,10 +233,16 @@ public class CommandHandler {
             bot.getQueuePageMap().put(event.getGuild().getIdLong(), page);
         }
 
-        event.getChannel().sendMessage(queueMessage.toString()).queue(message -> {
+        event.getChannel().retrieveMessageById(event.getMessageId()).queue(message -> {
+            message.editMessage(queueMessage.toString()).queue();
+            message.clearReactions().queue();
             if (playbackQueue.size() > ConfigUtils.QUEUE_PAGE_SIZE) {
-                message.addReaction(Emoji.fromUnicode("⬅️")).queue();
-                message.addReaction(Emoji.fromUnicode("➡️")).queue();
+                if (page > 0) {
+                    message.addReaction(Emoji.fromUnicode("⬅️")).queue();
+                }
+                if (endIndex < playbackQueue.size()) {
+                    message.addReaction(Emoji.fromUnicode("➡️")).queue();
+                }
             }
         });
     }
