@@ -75,7 +75,16 @@ If you encounter any issues:
 - Ensure that dependencies in the `pom.xml` file are properly declared.
 - Review project configuration settings in the `config.json` file.
 
-## Docker Run
+## Running the Bot with Docker
+
+### Step 1: Build the Docker Image
+Navigate to the project directory and build the Docker image:
+```bash
+docker build -t spotibot .
+```
+
+### Step 2: Run the Docker Container
+Run the Docker container with the necessary environment variables:
 ```bash
 docker run -e BOT_TOKEN="your discord token" \
            -e STATUS="Streaming tunes" \
@@ -85,8 +94,12 @@ docker run -e BOT_TOKEN="your discord token" \
            -e SKIP_EMOJI="⏭" \
            -e STOP_EMOJI="⏹" \
            -e QUEUE_EMOJI="🗒" \
-           ghcr.io/toe-fur/spotibot:beta
+           -v /path/to/config:/app/config \
+           spotibot
 ```
+
+### Step 3: Access the Bot
+Ensure that the bot is running and accessible on your Discord server.
 
 ## Authentication 
 - Export your YouTube cookies using a browser extension (e.g., EditThisCookie).
