@@ -14,6 +14,11 @@ public class DownloadQueueHandler {
     private static final Logger logger = Logger.getLogger(DownloadQueueHandler.class.getName());
 
     public static void queueAndPlay(String input, TrackScheduler trackScheduler, GuildMessageChannel messageChannel, Guild guild, String serverFolder, BlockingQueue<Runnable> downloadQueue) {
+        if (input == null || input.isEmpty()) {
+            messageChannel.sendMessage("Invalid track title.").queue();
+            return;
+        }
+
         downloadQueue.offer(() -> {
             try {
                 String query = input.contains("youtube.com") || input.contains("youtu.be") ? input : "ytsearch:" + input;

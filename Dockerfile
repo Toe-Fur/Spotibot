@@ -22,12 +22,12 @@ WORKDIR /app
 
 # Install yt-dlp and dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl python3 python3-pip software-properties-common && \
-    curl -sSL https://install.python-poetry.org | python3 - && \
+    curl python3 python3-pip python3-venv software-properties-common && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install yt-dlp using pip
-RUN pip3 install yt-dlp
+# Create a virtual environment and install yt-dlp
+RUN python3 -m venv /app/venv && \
+    /app/venv/bin/pip install yt-dlp
 
 # Copy the built JAR from the builder stage
 COPY --from=builder /app/target/Spotibot.jar Spotibot.jar

@@ -1,6 +1,7 @@
 package com.example.bot;
 
 import net.dv8tion.jda.api.entities.Guild;
+import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
 import net.dv8tion.jda.api.entities.emoji.Emoji;
@@ -60,20 +61,7 @@ public class CommandHandler {
                 } else if (input.contains("youtube.com") || input.contains("youtu.be")) {
                     DownloadQueueHandler.queueAndPlay(input, trackScheduler, messageChannel, guild, serverFolder, downloadQueue);
                 } else {
-                    if (SpotifyUtils.isPlaylist(input)) {
-                        List<String> playlistTitles;
-                        try {
-                            playlistTitles = SpotifyUtils.getYouTubePlaylistTitles(input);
-                            for (String trackTitle : playlistTitles) {
-                                DownloadQueueHandler.queueAndPlay(trackTitle, trackScheduler, messageChannel, guild, serverFolder, downloadQueue);
-                            }
-                        } catch (Exception e) {
-                            messageChannel.sendMessage("Failed to retrieve playlist: " + e.getMessage()).queue();
-                        }
-                    } else {
-                        String trackTitle = SpotifyUtils.getYouTubeTitle(input);
-                        DownloadQueueHandler.queueAndPlay(trackTitle, trackScheduler, messageChannel, guild, serverFolder, downloadQueue);
-                    }
+                    DownloadQueueHandler.queueAndPlay(input, trackScheduler, messageChannel, guild, serverFolder, downloadQueue);
                 }
             } catch (Exception e) {
                 messageChannel.sendMessage("An error occurred: " + e.getMessage()).queue();
@@ -86,27 +74,57 @@ public class CommandHandler {
             showQueue(event, trackScheduler, 0, bot);
         } else if (message.equalsIgnoreCase("!help")) {
             messageChannel.sendMessage(getHelpMessage()).queue();
+        } else if (message.equalsIgnoreCase("!blackjack")) {
+            Executors.newSingleThreadExecutor().submit(() -> BlackjackGame.startGame(event.getAuthor(), messageChannel));
+        } else if (message.equalsIgnoreCase("!blackjack help")) {
+            Executors.newSingleThreadExecutor().submit(() -> messageChannel.sendMessage(getBlackjackHelpMessage()).queue());
+        } else if (message.startsWith("!add ")) {
+            Executors.newSingleThreadExecutor().submit(() -> {
+                String[] parts = message.split(" ");
+                if (parts.length == 3) {
+                    try {
+                        int amount = Integer.parseInt(parts[1]);
+                        User targetUser = event.getMessage().getMentions().getUsers().get(0);
+                        BlackjackGame.addBalance(targetUser, amount, messageChannel);
+                    } catch (NumberFormatException e) {
+                        messageChannel.sendMessage("Invalid amount specified.").queue();
+                    } catch (IndexOutOfBoundsException e) {
+                        messageChannel.sendMessage("Please mention a user to add balance to.").queue();
+                    }
+                } else {
+                    messageChannel.sendMessage("Usage: !add <amount> <@user>").queue();
+                }
+            });
+        } else if (message.equalsIgnoreCase("!hit") || message.equalsIgnoreCase("!stand") || message.equalsIgnoreCase("!double") || message.equalsIgnoreCase("!split") || message.equalsIgnoreCase("!quit") || message.equalsIgnoreCase("!ledger")) {
+            Executors.newSingleThreadExecutor().submit(() -> BlackjackCommands.handleCommand(message, event.getAuthor(), messageChannel));
         }
     }
 
     public static void handleReaction(MessageReactionAddEvent event, TrackSchedulerRegistry trackSchedulerRegistry, Map<Long, Integer> queuePageMap) {
         if (event.getUser().isBot()) return;
 
-        String emoji = event.getEmoji().getName();
         Guild guild = event.getGuild();
         TrackScheduler trackScheduler = trackSchedulerRegistry.getOrCreate(guild, new Spotibot(), new DefaultAudioPlayerManager().createPlayer());
 
-        int currentPage = queuePageMap.getOrDefault(guild.getIdLong(), 0);
-
-        if (emoji.equals("⬅️")) {
-            if (currentPage > 0) {
-                showQueue(event, trackScheduler, currentPage - 1, null);
+        event.retrieveMessage().queue(message -> {
+            if (!message.getAuthor().getId().equals(event.getJDA().getSelfUser().getId())) {
+                // The message was not sent by the bot, so ignore the reaction
+                return;
             }
-        } else if (emoji.equals("➡️")) {
-            showQueue(event, trackScheduler, currentPage + 1, null);
-        }
 
-        event.getReaction().removeReaction(event.getUser()).queue();
+            String emoji = event.getEmoji().getName();
+            int currentPage = queuePageMap.getOrDefault(guild.getIdLong(), 0);
+
+            if (emoji.equals("⬅️")) {
+                if (currentPage > 0) {
+                    showQueue(event, trackScheduler, currentPage - 1, null);
+                }
+            } else if (emoji.equals("➡️")) {
+                showQueue(event, trackScheduler, currentPage + 1, null);
+            }
+
+            event.getReaction().removeReaction(event.getUser()).queue();
+        });
     }
 
     private static void handleSkipCommand(Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler) {
@@ -234,18 +252,21 @@ public class CommandHandler {
         }
 
         event.getChannel().retrieveMessageById(event.getMessageId()).queue(message -> {
-            message.editMessage(queueMessage.toString()).queue();
-            message.clearReactions().queue();
-            if (playbackQueue.size() > ConfigUtils.QUEUE_PAGE_SIZE) {
-                if (page > 0) {
-                    message.addReaction(Emoji.fromUnicode("⬅️")).queue();
-                }
-                if (endIndex < playbackQueue.size()) {
-                    message.addReaction(Emoji.fromUnicode("➡️")).queue();
+            // Check if the message was sent by the bot
+            if (message.getAuthor().getId().equals(event.getJDA().getSelfUser().getId())) {
+                message.editMessage(queueMessage.toString()).queue();
+                message.clearReactions().queue();
+                if (playbackQueue.size() > ConfigUtils.QUEUE_PAGE_SIZE) {
+                    if (page > 0) {
+                        message.addReaction(Emoji.fromUnicode("⬅️")).queue();
+                    }
+                    if (endIndex < playbackQueue.size()) {
+                        message.addReaction(Emoji.fromUnicode("➡️")).queue();
+                    }
                 }
             }
         });
-    }
+}
 
     private static String getHelpMessage() {
         return "**Spotibot Commands**:\n" +
@@ -254,6 +275,20 @@ public class CommandHandler {
                "`!stop` - Stops playback and resets the bot.\n" +
                "`!queue` - Shows the current queue.\n" +
                "`!help` - Shows this list of commands.\n" +
+               "`!blackjack` - Join a game of blackjack.\n" +
+               "`!blackjack help` - Shows blackjack commands.\n" +
                "\nNote: Place your `cookies.txt` file in the `config` folder for YouTube authentication.";
+    }
+
+    private static String getBlackjackHelpMessage() {
+        return "**Blackjack Commands**:\n" +
+               "`!blackjack` - Join a game of blackjack.\n" +
+               "`!quit` - Quit the current game of blackjack.\n" +
+               "`!ledger` - Show your blackjack ledger.\n" +
+               "`!add <amount> <@user>` - Adds balance to a user's account.\n" +
+               "`!hit` - Hit to draw another card.\n" +
+               "`!stand` - Stand to end your turn.\n" +
+               "`!double` - Double down your bet.\n" +
+               "`!split` - Split your hand if you have a pair.";
     }
 }
