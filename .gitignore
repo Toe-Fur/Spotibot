@@ -1,13 +1,14 @@
-# Ignore everything in the downloads folder
-/downloads/
+# Java/Maven
+target/
+*.log
 
-# Ignore the Maven target directory (build artifacts)
-/target/
+# IDEs
+.idea/
+*.iml
+.vscode/
 
-# Ignore the Backups folder (zipped file)
-Backup.zip
+# OS cruft
+.DS_Store
 
-# Ignore the bot configuration file containing sensitive information
-config.json
-/config
-SpotifyKeys.txt
+# Local runtime config (never commit tokens/cookies)
+config/

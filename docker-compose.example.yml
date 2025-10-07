@@ -1,0 +1,20 @@
+services:
+  spotibot:
+    build:
+      context: .
+    container_name: spotibot
+    restart: unless-stopped
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      STATUS: ${STATUS:-Streaming tunes}
+      DEFAULT_VOLUME: ${DEFAULT_VOLUME:-75}
+      TZ: America/Los_Angeles
+      TMPDIR: /tmp
+    volumes:
+      - ./config:/app/config:rw
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'java .*app.jar' >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

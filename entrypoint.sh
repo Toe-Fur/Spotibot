@@ -1,20 +1,20 @@
-#!/bin/bash
+#!/bin/sh
+set -e
 
-# Set default values if environment variables are not provided
 BOT_TOKEN="${BOT_TOKEN:-YOUR_BOT_TOKEN_HERE}"
-STATUS="${STATUS:-Playing music on Discord}"
-DEFAULT_VOLUME="${DEFAULT_VOLUME:-60}"
+STATUS="${STATUS:-Streaming tunes}"
+DEFAULT_VOLUME="${DEFAULT_VOLUME:-75}"
 NOW_PLAYING="${NOW_PLAYING:-🎶 **Now Playing:** {title}}"
 QUEUED="${QUEUED:-📍 **{index}. {title}**}"
 SKIP_EMOJI="${SKIP_EMOJI:-⏩}"
 STOP_EMOJI="${STOP_EMOJI:-⏹️}"
 QUEUE_EMOJI="${QUEUE_EMOJI:-📝}"
 
-# Ensure the /config directory exists
-mkdir -p /config
+mkdir -p /app/config
 
-# Generate the config.json file
-cat <<EOF > /config/config.json
+# create config if missing/empty
+if [ ! -s /app/config/config.json ]; then
+  cat > /app/config/config.json <<JSON
 {
   "bot_token": "${BOT_TOKEN}",
   "status": "${STATUS}",
@@ -29,7 +29,7 @@ cat <<EOF > /config/config.json
     "queue": "${QUEUE_EMOJI}"
   }
 }
-EOF
+JSON
+fi
 
-# Run the Spotibot JAR
-exec java -jar Spotibot.jar
+exec java -jar /app/app.jar

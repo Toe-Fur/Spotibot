@@ -1,42 +1,28 @@
-# Use the official Maven image to build the project
-FROM maven:3.9.5-eclipse-temurin-17 as builder
-
-# Set the working directory inside the container
-WORKDIR /app
-
-# Copy only the pom.xml and download dependencies (caches dependencies)
+# ---------- Build stage ----------
+FROM maven:3.9-eclipse-temurin-17 AS build
+WORKDIR /build
 COPY pom.xml .
-RUN mvn dependency:go-offline -B
-
-# Copy the source code after dependencies are cached
+RUN --mount=type=cache,target=/root/.m2 mvn -q -DskipTests dependency:go-offline
 COPY src ./src
+RUN --mount=type=cache,target=/root/.m2 \
+    set -e; \
+    mvn -q -DskipTests package; \
+    JAR="$(ls -1 target/*.jar | grep -Ev '(sources|javadoc|original)' | head -n1)"; \
+    cp "$JAR" /build/app.jar
 
-# Run Maven package to build the project
-RUN mvn clean package -DskipTests
-
-# Use a lightweight JRE image to run the application
-FROM eclipse-temurin:17-jre
-
-# Set the working directory for the runtime container
+# ---------- Runtime stage ----------
+FROM eclipse-temurin:17-jre-jammy
 WORKDIR /app
-
-# Install yt-dlp and dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl python3 python3-pip python3-venv software-properties-common && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Create a virtual environment and install yt-dlp
-RUN python3 -m venv /app/venv && \
-    /app/venv/bin/pip install yt-dlp
-
-# Copy the built JAR from the builder stage
-COPY --from=builder /app/target/Spotibot.jar Spotibot.jar
-
-# Add the entrypoint script
+ENV TZ=America/Los_Angeles
+COPY --from=build /build/app.jar /app/app.jar
 COPY entrypoint.sh /app/entrypoint.sh
-
-# Make the script executable
-RUN chmod +x /app/entrypoint.sh
-
-# Set the entrypoint to the shell script
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      curl ca-certificates ffmpeg && \
+    rm -rf /var/lib/apt/lists/* && \
+    curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && \
+    chmod +x /usr/local/bin/yt-dlp
+VOLUME ["/app/config"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=5 \
+  CMD pgrep -f 'java .*app.jar' >/dev/null || exit 1
 ENTRYPOINT ["/app/entrypoint.sh"]
