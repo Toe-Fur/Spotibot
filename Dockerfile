@@ -18,7 +18,7 @@ COPY --from=build /build/app.jar /app/app.jar
 COPY entrypoint.sh /app/entrypoint.sh
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      curl ca-certificates ffmpeg && \
+      curl ca-certificates ffmpeg python3 && \
     rm -rf /var/lib/apt/lists/* && \
     curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && \
     chmod +x /usr/local/bin/yt-dlp
