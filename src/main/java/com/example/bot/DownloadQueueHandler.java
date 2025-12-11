@@ -20,7 +20,7 @@ public class DownloadQueueHandler {
                                     TrackScheduler trackScheduler,
                                     GuildMessageChannel messageChannel,
                                     Guild guild,
-                                    String serverFolder,
+                                    String serverFolderBase,
                                     BlockingQueue<Runnable> downloadQueue) {
 
         if (input == null || input.isEmpty()) {
@@ -28,69 +28,92 @@ public class DownloadQueueHandler {
             return;
         }
 
-        // Make sure the download directory exists
-        if (serverFolder != null && !serverFolder.isEmpty()) {
-            File folder = new File(serverFolder);
-            if (!folder.exists() && !folder.mkdirs()) {
-                logger.severe("Failed to create download folder: " + serverFolder);
-            }
+        // serverFolderBase is expected to be something like:
+        // "config/downloads" or "/app/config/downloads"
+        if (serverFolderBase == null || serverFolderBase.isEmpty()) {
+            // sensible default inside the container
+            serverFolderBase = "config/downloads";
         }
+
+        // Build the per-guild/server folder: <base>/<guildId>/
+        String guildId = guild != null ? guild.getId() : "global";
+        File guildFolder = new File(serverFolderBase, guildId);
+
+        // Make sure the guild folder exists
+        if (!guildFolder.exists() && !guildFolder.mkdirs()) {
+            logger.severe("Failed to create download folder for guild: " + guildId
+                    + " at: " + guildFolder.getAbsolutePath());
+        } else {
+            logger.info("Using download folder: " + guildFolder.getAbsolutePath());
+        }
+
+        final File finalGuildFolder = guildFolder;
+        final String finalServerFolderBase = serverFolderBase;
+        final String originalInput = input;
 
         downloadQueue.offer(() -> {
             try {
                 // If it's a YT URL, use it directly; otherwise use ytsearch:
-                String query = (input.contains("youtube.com") || input.contains("youtu.be"))
-                        ? input
-                        : "ytsearch:" + input;
+                String query = (originalInput.contains("youtube.com") || originalInput.contains("youtu.be"))
+                        ? originalInput
+                        : "ytsearch:" + originalInput;
 
-                String sanitizedSongName = sanitizeFileName(input);
-                String outputFilePath = serverFolder + sanitizedSongName + ".webm";
+                String sanitizedSongName = sanitizeFileName(originalInput);
 
-                File downloadedFile = new File(outputFilePath);
+                // Output file inside the guild folder
+                File outputFile = new File(finalGuildFolder, sanitizedSongName + ".webm");
+                String outputFilePath = outputFile.getPath();
 
-                if (!downloadedFile.exists()) {
+                logger.info("Expected output file path: " + outputFilePath);
+
+                if (!outputFile.exists()) {
                     downloadAndQueueSong(query, outputFilePath, messageChannel);
                 }
 
-                if (downloadedFile.exists()) {
-                    trackScheduler.queueSong(downloadedFile, input);
+                if (outputFile.exists()) {
+                    trackScheduler.queueSong(outputFile, originalInput);
                     messageChannel
-                            .sendMessage(String.format("📍 **Queued:** `%s`", input))
+                            .sendMessage(String.format("📍 **Queued:** `%s`", originalInput))
                             .queue(msg -> msg.suppressEmbeds(true).queue());
                 } else {
                     messageChannel
-                            .sendMessage("Failed to download or queue the track: " + input)
+                            .sendMessage("Failed to download or queue the track: " + originalInput)
                             .queue(msg -> msg.suppressEmbeds(true).queue());
                 }
             } catch (IOException | InterruptedException e) {
                 messageChannel
                         .sendMessage("Error downloading or queuing track: " + e.getMessage())
                         .queue(msg -> msg.suppressEmbeds(true).queue());
-                logger.severe("Error processing track: " + input + " - " + e.getMessage());
+                logger.severe("Error processing track: " + originalInput + " - " + e.getMessage());
             }
         });
     }
 
-    public static void clearDownloadsFolder(String serverFolder) {
-        File downloadFolder = new File(serverFolder);
+    public static void clearDownloadsFolder(String serverFolderBase) {
+        if (serverFolderBase == null || serverFolderBase.isEmpty()) {
+            serverFolderBase = "config/downloads";
+        }
+
+        File downloadFolder = new File(serverFolderBase);
         if (downloadFolder.exists() && downloadFolder.isDirectory()) {
-            File[] files = downloadFolder.listFiles();
-            if (files != null) {
-                for (File file : files) {
-                    if (file.isFile()) {
-                        // We don't care if delete fails silently here
-                        file.delete();
+            File[] guildFolders = downloadFolder.listFiles();
+            if (guildFolders != null) {
+                for (File guildFolder : guildFolders) {
+                    if (guildFolder.isDirectory()) {
+                        File[] files = guildFolder.listFiles();
+                        if (files != null) {
+                            for (File file : files) {
+                                if (file.isFile()) {
+                                    file.delete();
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    /**
-     * Actually calls yt-dlp and logs everything.
-     * This is now tuned to match the working command you ran in the container:
-     * yt-dlp --cookies /app/config/cookies.txt "https://youtu.be/qrm8w-pV120"
-     */
     private static void downloadAndQueueSong(String query,
                                              String outputFilePath,
                                              GuildMessageChannel messageChannel)
@@ -98,28 +121,25 @@ public class DownloadQueueHandler {
 
         File cookieFile = new File(ConfigUtils.COOKIE_FILE_PATH);
 
-        // Build yt-dlp command as close as possible to the known-good one
         List<String> command = new ArrayList<>();
         command.add("yt-dlp");
 
-        // Use cookies if they exist (e.g. /app/config/cookies.txt)
         if (cookieFile.exists()) {
             command.add("--cookies");
             command.add(cookieFile.getAbsolutePath());
         }
 
-        // Avoid over-specifying formats; let yt-dlp pick best (like your working run)
-        command.add("--no-playlist");   // still safe to keep
+        command.add("--no-playlist");
         command.add("-o");
-        command.add(outputFilePath);    // absolute or full path
-
-        // Finally, the URL or ytsearch: query
+        command.add(outputFilePath);
         command.add(query);
 
         logger.info("Running yt-dlp command: " + String.join(" ", command));
 
         ProcessBuilder downloadBuilder = new ProcessBuilder(command);
-        downloadBuilder.redirectErrorStream(true);  // merge stderr into stdout
+        downloadBuilder.redirectErrorStream(true);
+        // Make sure relative paths like "config/downloads/..." resolve from /app
+        downloadBuilder.directory(new File("/app"));
 
         Process downloadProcess = downloadBuilder.start();
 
