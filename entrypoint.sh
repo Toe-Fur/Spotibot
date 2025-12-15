@@ -1,6 +1,13 @@
 #!/bin/sh
 set -e
 
+# ---- update yt-dlp before anything else ----
+if command -v yt-dlp >/dev/null 2>&1; then
+  echo "🔄 Updating yt-dlp via self-update..."
+  yt-dlp -U || echo "⚠️ yt-dlp update failed, continuing"
+fi
+# -------------------------------------------
+
 BOT_TOKEN="${BOT_TOKEN:-YOUR_BOT_TOKEN_HERE}"
 STATUS="${STATUS:-Streaming tunes}"
 DEFAULT_VOLUME="${DEFAULT_VOLUME:-75}"
