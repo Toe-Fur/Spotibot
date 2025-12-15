@@ -11,14 +11,27 @@ public class BlackjackUiListener extends ListenerAdapter {
         String id = event.getComponentId();
         if (id == null || !id.startsWith("bj:")) return;
 
-        // prevents "This interaction failed"
+        // prevent "This interaction failed"
         event.deferEdit().queue();
 
         GuildMessageChannel channel = event.getChannel().asGuildMessageChannel();
 
+        // bet buttons: bj:bet:<amount>
+        if (id.startsWith(BlackjackGame.BTN_BET_PREFIX)) {
+            String amtStr = id.substring(BlackjackGame.BTN_BET_PREFIX.length());
+            try {
+                int amt = Integer.parseInt(amtStr);
+                BlackjackGame.placeBet(event.getUser(), amt, channel);
+            } catch (NumberFormatException ignored) {}
+            return;
+        }
+
         switch (id) {
             case BlackjackGame.BTN_JOIN -> BlackjackGame.join(event.getUser(), channel);
             case BlackjackGame.BTN_LEAVE -> BlackjackGame.leave(event.getUser(), channel);
+
+            case BlackjackGame.BTN_BUYIN -> BlackjackGame.buyIn(event.getUser(), channel);
+            case BlackjackGame.BTN_BET_CLEAR -> BlackjackGame.clearBet(event.getUser(), channel);
 
             case BlackjackGame.BTN_HIT -> BlackjackGame.action(event.getUser(), BlackjackGame.Action.HIT);
             case BlackjackGame.BTN_STAND -> BlackjackGame.action(event.getUser(), BlackjackGame.Action.STAND);
