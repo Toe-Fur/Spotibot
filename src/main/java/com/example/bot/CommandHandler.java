@@ -19,11 +19,16 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class CommandHandler {
     private static final Logger logger = LoggerFactory.getLogger(CommandHandler.class);
+
+    private static final Set<String> ADMIN_IDS = Set.of(
+        "123456789012345678" // Gametopher
+    );
 
     public static void handleMessage(MessageReceivedEvent event, Spotibot bot, AudioPlayerManager playerManager, TrackSchedulerRegistry trackSchedulerRegistry, BlockingQueue<Runnable> downloadQueue) {
         String message = event.getMessage().getContentRaw();
@@ -92,6 +97,30 @@ public class CommandHandler {
                 }
             } else {
                 messageChannel.sendMessage("Usage: !add <amount> <@user>").queue();
+            }
+        } else if (message.toLowerCase().startsWith("!funds ")) {
+            if (!ADMIN_IDS.contains(event.getAuthor().getId())) {
+                messageChannel.sendMessage("❌ You don't have permission to use `!funds`.").queue();
+                return;
+            }
+
+            String[] parts = message.split(" ");
+            if (parts.length < 3 || event.getMessage().getMentions().getUsers().isEmpty()) {
+                messageChannel.sendMessage("Usage: `!funds <amount> @user`").queue();
+                return;
+            }
+
+            try {
+                int amount = Integer.parseInt(parts[1]);
+                User target = event.getMessage().getMentions().getUsers().get(0);
+
+                BlackjackGame.addBalance(target, amount, messageChannel);
+
+                messageChannel.sendMessage(
+                    "💰 Funded " + target.getAsMention() + " **$" + amount + "**"
+                ).queue();
+            } catch (NumberFormatException e) {
+                messageChannel.sendMessage("Invalid amount. Usage: `!funds <amount> @user`").queue();
             }
         } else if (message.equalsIgnoreCase("!hit") || message.equalsIgnoreCase("!stand") || message.equalsIgnoreCase("!double")
                 || message.equalsIgnoreCase("!split") || message.equalsIgnoreCase("!quit") || message.equalsIgnoreCase("!ledger")) {
