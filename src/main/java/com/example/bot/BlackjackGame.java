@@ -83,10 +83,19 @@ public class BlackjackGame {
     private static List<String> dealerHand = new ArrayList<>();
     private static volatile boolean dealerHidden = true;
 
-    // One table message per channel
+    // One table message per channel (game)
     private static final Map<Long, Long> tableMessageByChannel = new ConcurrentHashMap<>();
     private static final Map<Long, Long> lastUpdateByChannel   = new ConcurrentHashMap<>();
     private static final Set<Long> creatingTableMessage        = ConcurrentHashMap.newKeySet();
+
+    // One ledger message per channel (separate from game) - stays above game message
+    private static final Map<Long, Long> ledgerMessageByChannel = new ConcurrentHashMap<>();
+    private static final Set<Long> creatingLedgerMessage        = ConcurrentHashMap.newKeySet();
+
+    // Bottom “System” message per channel (replaces the old rotating tips)
+    private static final Map<Long, Long> systemMessageByChannel = new ConcurrentHashMap<>();
+    private static final Set<Long> creatingSystemMessage        = ConcurrentHashMap.newKeySet();
+    private static final Map<Long, String> lastSystemTextByChannel = new ConcurrentHashMap<>();
 
     // Idle close task per channel
     private static final Map<Long, ScheduledFuture<?>> idleCloseTask = new ConcurrentHashMap<>();
@@ -96,15 +105,14 @@ public class BlackjackGame {
     private static final Map<Long, Deque<RoundLog>> roundHistoryByChannel = new ConcurrentHashMap<>();
     private static final Map<Long, Integer> historyPageByChannel = new ConcurrentHashMap<>();
 
-    private static final Map<Long, Long> noticeMessageByChannel = new ConcurrentHashMap<>();
-    private static final Map<Long, ScheduledFuture<?>> noticeDeleteTaskByChannel = new ConcurrentHashMap<>();
-    private static final long NOTICE_TTL_MS = 6000;
-
     // -------- Betting state (per round) --------
     private enum Phase { LOBBY, BETTING, PLAYING, RESULTS }
     private static volatile Phase phase = Phase.LOBBY;
 
+    // committed bet (only when user presses BET)
     private static final Map<String, Integer> pendingBetById = new ConcurrentHashMap<>();
+    // staged bet (chips add up here)
+    private static final Map<String, Integer> stagedBetById = new ConcurrentHashMap<>();
     private static final Map<String, Integer> roundNetById = new ConcurrentHashMap<>();
 
     // Button IDs
@@ -115,9 +123,10 @@ public class BlackjackGame {
     public static final String BTN_DOUBLE = "bj:double";
     public static final String BTN_SPLIT  = "bj:split";
 
-    public static final String BTN_BUYIN     = "bj:buyin";
-    public static final String BTN_BET_CLEAR = "bj:bet_clear";
-    public static final String BTN_BET_PREFIX = "bj:bet:"; // bj:bet:50
+    public static final String BTN_BUYIN       = "bj:buyin";
+    public static final String BTN_BET_CLEAR   = "bj:bet_clear";
+    public static final String BTN_BET_CONFIRM = "bj:bet_confirm";
+    public static final String BTN_BET_PREFIX  = "bj:bet:"; // bj:bet:50
 
     public static final String BTN_HIST_PREV = "bj:hist_prev";
     public static final String BTN_HIST_NEXT = "bj:hist_next";
@@ -126,16 +135,59 @@ public class BlackjackGame {
         loadState();
     }
 
-    // -------- Compatibility shims --------
-    public static void startGame(User user, GuildMessageChannel channel) { join(user, channel); }
+    // -------- Backwards-compatible API (for existing command classes) --------
+    // Back-compat: old callers still use this name.
+    // Now it just updates the bottom System panel (no rotating).
+    public static void pushRotator(GuildMessageChannel channel, String line) {
+        if (channel == null) return;
+        system(channel, line);
+    }
+
+    public static void showLedger(User user, GuildMessageChannel channel) {
+        refreshTable(channel, true);
+    }
 
     public static void addBalance(User user, int amount, GuildMessageChannel channel) {
         String uid = user.getId();
         balancesById.putIfAbsent(uid, START_BALANCE);
-        balancesById.merge(uid, amount, Integer::sum);
-        appendLedger(uid, new LedgerEntry(Instant.now().toString(), "ADMIN_FUNDS", amount, balancesById.get(uid)));
+
+        int newBal = balancesById.merge(uid, amount, Integer::sum);
+        appendLedger(uid, new LedgerEntry(Instant.now().toString(), "ADMIN_FUNDS", amount, newBal));
+
+        system(channel, "💰 Funded **" + displayName(channel, user) + "** **$" + amount + "**");
         saveState();
         refreshTable(channel, true);
+    }
+
+    // -------- Compatibility shim --------
+    public static void startGame(User user, GuildMessageChannel channel) { join(user, channel); }
+
+    // -------- System bottom panel (edits in place) --------
+    private static void system(GuildMessageChannel channel, String text) {
+        if (channel == null) return;
+        long cid = channel.getIdLong();
+
+        String safe = (text == null || text.isBlank())
+                ? "—"
+                : text;
+
+        lastSystemTextByChannel.put(cid, safe);
+
+        // make sure the 3-message stack exists in order
+        refreshTable(channel, true);
+    }
+
+    private static MessageEmbed buildSystemEmbed(GuildMessageChannel channel) {
+        long cid = channel.getIdLong();
+
+        String msg = lastSystemTextByChannel.getOrDefault(cid,
+                "Ready. Join to play.  •  `!funds <amount> @user`");
+
+        return new EmbedBuilder()
+                .setTitle("💬 System")
+                .setColor(new Color(0xf1c40f))
+                .setDescription(msg)
+                .build();
     }
 
     // -------- Public API --------
@@ -144,28 +196,48 @@ public class BlackjackGame {
         int bal = balancesById.getOrDefault(uid, START_BALANCE);
 
         if (bal >= 50) {
-            notice(channel, user.getAsMention() + " you have **$" + bal + "** — buy-in is only if you're below **$50**.");
+            system(channel, "❌ Buy-in only works if you're below **$50**.");
             return;
         }
 
         balancesById.put(uid, BUY_IN_AMOUNT);
-        appendLedger(uid, new LedgerEntry(Instant.now().toString(), "BUY_IN", -(BUY_IN_AMOUNT - bal), BUY_IN_AMOUNT));
+
+        int topUp = Math.max(0, BUY_IN_AMOUNT - bal);
+        appendLedger(uid, new LedgerEntry(Instant.now().toString(), "BUY_IN", -topUp, BUY_IN_AMOUNT));
+
+        system(channel, "🪙 **" + displayName(channel, user) + "** bought in to **$" + BUY_IN_AMOUNT + "**");
+
         saveState();
         refreshTable(channel, true);
-
-        notice(channel, user.getAsMention() + " buy-in complete. Balance set to **$" + BUY_IN_AMOUNT + "**.");
     }
 
     public static void clearBet(User user, GuildMessageChannel channel) {
-        if (phase != Phase.BETTING) return;
-        if (!seated.contains(user)) return;
+        if (phase != Phase.BETTING) {
+            system(channel, "⚠️ You can only change bets during **BETTING**.");
+            return;
+        }
+        if (!seated.contains(user)) {
+            system(channel, "⚠️ You must be seated to bet.");
+            return;
+        }
+
+        stagedBetById.remove(user.getId());
         pendingBetById.remove(user.getId());
+
+        system(channel, "🧹 **" + displayName(channel, user) + "** cleared their bet");
         refreshTable(channel, true);
     }
 
+    // incremental chip press: add to staged bet
     public static void placeBet(User user, int amount, GuildMessageChannel channel) {
-        if (phase != Phase.BETTING) return;
-        if (!seated.contains(user)) return;
+        if (phase != Phase.BETTING) {
+            system(channel, "⚠️ You can only place chips during **BETTING**.");
+            return;
+        }
+        if (!seated.contains(user)) {
+            system(channel, "⚠️ You must be seated to bet.");
+            return;
+        }
 
         boolean ok = false;
         for (int b : BET_OPTIONS) if (b == amount) { ok = true; break; }
@@ -173,13 +245,42 @@ public class BlackjackGame {
 
         String uid = user.getId();
         int bal = balancesById.getOrDefault(uid, START_BALANCE);
+        int staged = stagedBetById.getOrDefault(uid, 0);
 
-        if (bal < amount) {
-            notice(channel, user.getAsMention() + " not enough funds for $" + amount + ".");
+        int next = staged + amount;
+        if (next > bal) next = bal;
+        if (next < 0) next = 0;
+
+        stagedBetById.put(uid, next);
+
+        system(channel, "🟡 Staged bet for **" + displayName(channel, user) + "**: **$" + next + "** (press **BET** to lock)");
+        refreshTable(channel, true);
+    }
+
+    // only this locks the bet in
+    public static void confirmBet(User user, GuildMessageChannel channel) {
+        if (phase != Phase.BETTING) {
+            system(channel, "⚠️ You can only lock a bet during **BETTING**.");
+            return;
+        }
+        if (!seated.contains(user)) {
+            system(channel, "⚠️ You must be seated to bet.");
             return;
         }
 
-        pendingBetById.put(uid, amount);
+        String uid = user.getId();
+        int bal = balancesById.getOrDefault(uid, START_BALANCE);
+        int staged = stagedBetById.getOrDefault(uid, 0);
+
+        if (staged <= 0) {
+            system(channel, "⚠️ Your staged bet is **$0**. Tap chips first.");
+            return;
+        }
+
+        if (staged > bal) staged = bal;
+
+        pendingBetById.put(uid, staged);
+        system(channel, "✅ **" + displayName(channel, user) + "** locked in **$" + staged + "**");
         refreshTable(channel, true);
     }
 
@@ -194,21 +295,23 @@ public class BlackjackGame {
 
         actionQueues.putIfAbsent(user, new ArrayBlockingQueue<>(16));
 
-        if (seated.contains(user) || waiting.contains(user)) {
-            notice(channel, user.getAsMention() + " already seated.");
+        if (seated.contains(user)) {
             ensureRunning(channel);
-            refreshTable(channel, true);
+            system(channel, "✅ You're already seated.");
+            return;
+        }
+        if (waiting.contains(user)) {
+            ensureRunning(channel);
+            system(channel, "🕒 You're already in the lobby — you'll join next round.");
             return;
         }
 
-        // If we're in betting, let them join THIS round (and give them a default bet so round can start)
-        if (phase == Phase.BETTING) {
-            seated.add(user);
-            pendingBetById.putIfAbsent(uid, DEFAULT_BET);
-        } else if (roundActive) {
+        if (roundActive || phase != Phase.LOBBY) {
             waiting.add(user);
+            system(channel, "🕒 Added to lobby — you'll join next round.");
         } else {
             seated.add(user);
+            system(channel, "✅ Seated! Betting starts shortly.");
         }
 
         ensureRunning(channel);
@@ -221,6 +324,7 @@ public class BlackjackGame {
         actionQueues.remove(user);
         playerHands.remove(user);
         pendingBetById.remove(user.getId());
+        stagedBetById.remove(user.getId());
 
         if (user.equals(currentPlayer)) {
             offerAction(user, Action.STAND);
@@ -229,11 +333,13 @@ public class BlackjackGame {
         if (seated.isEmpty() && waiting.isEmpty()) {
             currentPlayer = null;
             currentHandIndex = 0;
+            system(channel, "Table empty — closing soon.");
             scheduleIdleClose(channel);
             refreshTable(channel, true);
             return;
         }
 
+        system(channel, "👋 Removed **" + displayName(channel, user) + "** from the table.");
         refreshTable(channel, true);
     }
 
@@ -242,34 +348,6 @@ public class BlackjackGame {
         if (!roundActive) return;
         if (!user.equals(currentPlayer)) return;
         offerAction(user, action);
-    }
-
-    public static void showLedger(User user, GuildMessageChannel channel) {
-        String uid = user.getId();
-        int bal = balancesById.getOrDefault(uid, START_BALANCE);
-        int w = winsById.getOrDefault(uid, 0);
-        int l = lossesById.getOrDefault(uid, 0);
-
-        StringBuilder sb = new StringBuilder();
-        sb.append(user.getAsMention())
-                .append(" 🧾 **Ledger**\n")
-                .append("Balance: **$").append(bal).append("** | Wins: **").append(w).append("** | Losses: **").append(l).append("**\n\n");
-
-        Deque<LedgerEntry> entries = ledgerById.get(uid);
-        if (entries == null || entries.isEmpty()) {
-            sb.append("_No history yet._");
-        } else {
-            int shown = 0;
-            for (LedgerEntry e : entries) {
-                sb.append("• ").append(e.ts).append(" — ").append(e.type)
-                        .append(" (").append(e.delta >= 0 ? "+" : "").append(e.delta).append(") → $").append(e.balanceAfter)
-                        .append("\n");
-                if (++shown >= 15) break;
-            }
-            if (entries.size() > 15) sb.append("\n_...and ").append(entries.size() - 15).append(" more_");
-        }
-
-        channel.sendMessage(sb.toString());
     }
 
     public static void historyPrev(GuildMessageChannel channel) {
@@ -321,9 +399,10 @@ public class BlackjackGame {
         currentHandIndex = 0;
 
         pendingBetById.clear();
+        stagedBetById.clear();
         roundNetById.clear();
 
-        // Betting UI (NO dummy hands)
+        system(channel, "🟣 Betting phase started — build your bet with chips, then press **BET**.");
         refreshTable(channel, true);
 
         long end = System.currentTimeMillis() + (BETTING_SECONDS * 1000L);
@@ -343,7 +422,6 @@ public class BlackjackGame {
             return;
         }
 
-        // Deal phase
         phase = Phase.PLAYING;
 
         dealerHand = dealHand();
@@ -351,10 +429,27 @@ public class BlackjackGame {
 
         for (User u : new ArrayList<>(seated)) {
             String uid = u.getId();
-            int bet = pendingBetById.getOrDefault(uid, DEFAULT_BET);
-            int bal = balancesById.getOrDefault(uid, START_BALANCE);
+            int bet = pendingBetById.getOrDefault(uid, 0);
 
-            if (bal < bet) { seated.remove(u); continue; }
+            if (bet <= 0) {
+                int bal = balancesById.getOrDefault(uid, START_BALANCE);
+                if (bal >= DEFAULT_BET) {
+                    bet = DEFAULT_BET;
+                    pendingBetById.put(uid, bet);
+                    system(channel, "🟡 **" + displayName(channel, u) + "** didn’t lock a bet — defaulted to **$" + DEFAULT_BET + "**");
+                } else {
+                    seated.remove(u);
+                    system(channel, "❌ **" + displayName(channel, u) + "** didn’t have enough to bet and was removed.");
+                    continue;
+                }
+            }
+
+            int bal = balancesById.getOrDefault(uid, START_BALANCE);
+            if (bal < bet) {
+                seated.remove(u);
+                system(channel, "❌ **" + displayName(channel, u) + "** couldn’t cover their bet and was removed.");
+                continue;
+            }
 
             balancesById.put(uid, bal - bet);
             appendLedger(uid, new LedgerEntry(Instant.now().toString(), "BET", -bet, balancesById.get(uid)));
@@ -372,7 +467,6 @@ public class BlackjackGame {
             takePlayerTurns(u, channel);
         }
 
-        // Dealer phase
         currentPlayer = null;
         currentHandIndex = 0;
 
@@ -388,7 +482,6 @@ public class BlackjackGame {
 
         settleRound(channel);
 
-        // Show results screen (with net +/-)
         phase = Phase.RESULTS;
         showRoundResultsScreen(channel);
         sleep(RESULTS_PAUSE_MS);
@@ -397,8 +490,9 @@ public class BlackjackGame {
         currentHandIndex = 0;
         roundActive = false;
         phase = Phase.LOBBY;
-        refreshTable(channel, true);
 
+        system(channel, "Next round will start shortly. Join/leave anytime.");
+        refreshTable(channel, true);
         saveState();
 
         if (seated.isEmpty() && waiting.isEmpty()) {
@@ -420,16 +514,16 @@ public class BlackjackGame {
             HandState h = hands.get(i);
             refreshTable(channel, true);
 
-            // Natural blackjack: pays 3:2 (net +1.5x bet)
             if (i == 0 && hands.size() == 1 && h.cards.size() == 2 && handValue(h.cards) == 21) {
                 String uid = user.getId();
-                int payout = (int) Math.round(h.bet * 2.5); // bet already deducted
+                int payout = (int) Math.round(h.bet * 2.5);
                 balancesById.merge(uid, payout, Integer::sum);
                 winsById.merge(uid, 1, Integer::sum);
                 appendLedger(uid, new LedgerEntry(Instant.now().toString(), "WIN_BLACKJACK", payout, balancesById.get(uid)));
                 roundNetById.merge(uid, (int) Math.round(h.bet * 1.5), Integer::sum);
 
                 h.resolved.set(true);
+                system(channel, "🟢 **" + displayName(channel, user) + "** hit **BLACKJACK**!");
                 refreshTable(channel, true);
                 continue;
             }
@@ -440,6 +534,7 @@ public class BlackjackGame {
                 int total = handValue(h.cards);
                 if (total > 21) {
                     h.resolved.set(true);
+                    system(channel, "💥 **" + displayName(channel, user) + "** busted.");
                     refreshTable(channel, true);
                     break;
                 }
@@ -450,9 +545,7 @@ public class BlackjackGame {
                 switch (act) {
                     case HIT -> {
                         h.cards.add(dealCard());
-                        refreshTable(channel, true); // force update immediately
-                        // optional: tiny pause so Discord/JDA rate limits don’t visually “skip”
-                        sleep(150);
+                        refreshTable(channel, true);
                         continue;
                     }
                     case STAND -> {
@@ -461,7 +554,10 @@ public class BlackjackGame {
                         break;
                     }
                     case DOUBLE -> {
-                        if (!canDouble(user, h)) continue;
+                        if (!canDouble(user, h)) {
+                            system(channel, "❌ Can't double right now.");
+                            continue;
+                        }
 
                         String uid = user.getId();
                         balancesById.put(uid, balancesById.get(uid) - h.bet);
@@ -469,11 +565,15 @@ public class BlackjackGame {
                         h.bet *= 2;
                         h.cards.add(dealCard());
                         h.resolved.set(true);
+                        system(channel, "🟡 **" + displayName(channel, user) + "** doubled.");
                         refreshTable(channel, true);
                         break;
                     }
                     case SPLIT -> {
-                        if (!canSplit(user, h)) continue;
+                        if (!canSplit(user, h)) {
+                            system(channel, "❌ Can't split right now.");
+                            continue;
+                        }
 
                         String uid = user.getId();
                         balancesById.put(uid, balancesById.get(uid) - h.bet);
@@ -488,6 +588,7 @@ public class BlackjackGame {
                         hands.set(i, h1);
                         hands.add(i + 1, h2);
 
+                        system(channel, "🟣 **" + displayName(channel, user) + "** split their hand.");
                         h = hands.get(i);
                         refreshTable(channel, true);
                         continue;
@@ -500,7 +601,6 @@ public class BlackjackGame {
 
     private static void settleRound(GuildMessageChannel channel) {
         int dealerTotal = handValue(dealerHand);
-
         List<String> logLines = new ArrayList<>();
 
         for (User u : new ArrayList<>(seated)) {
@@ -512,10 +612,9 @@ public class BlackjackGame {
                 HandState h = hs.get(i);
                 int t = handValue(h.cards);
 
-                String who = u.getName() + (hs.size() > 1 ? " (H" + (i + 1) + ")" : "");
+                String who = displayName(channel, u) + (hs.size() > 1 ? " (H" + (i + 1) + ")" : "");
                 String outcome;
 
-                // per-hand net relative to the bet already deducted
                 int net;
                 if (t > 21) net = -h.bet;
                 else if (dealerTotal > 21 || t > dealerTotal) net = +h.bet;
@@ -604,11 +703,86 @@ public class BlackjackGame {
     // -------- UI --------
     private static void refreshTable(GuildMessageChannel channel) { refreshTable(channel, false); }
 
+    /**
+     * Create order must be chained so Discord doesn't race sends:
+     * 1) Ledger (top) -> 2) Game -> 3) System (bottom)
+     */
     private static void refreshTable(GuildMessageChannel channel, boolean force) {
         long cid = channel.getIdLong();
-        MessageEmbed embed = buildEmbed(cid);
-        List<ActionRow> rows = buildButtons(cid);
-        upsertTableMessage(channel, embed, rows, force);
+
+        boolean needLedger = ledgerMessageByChannel.get(cid) == null;
+        boolean needGame   = tableMessageByChannel.get(cid) == null;
+        boolean needSys    = systemMessageByChannel.get(cid) == null;
+
+        if (needLedger || needGame || needSys) {
+            ensureMessageStack(channel, force);
+            return;
+        }
+
+        upsertLedgerMessage(channel, buildLedgerEmbed(channel));
+        upsertTableMessage(channel, buildEmbed(cid), buildButtons(cid), force);
+        upsertSystemMessage(channel, buildSystemEmbed(channel));
+    }
+
+    private static void ensureMessageStack(GuildMessageChannel channel, boolean force) {
+        long cid = channel.getIdLong();
+        if (seated.isEmpty() && waiting.isEmpty() && !roundActive) return;
+
+        // 1) Ledger
+        if (ledgerMessageByChannel.get(cid) == null) {
+            if (!creatingLedgerMessage.add(cid)) return;
+
+            channel.sendMessageEmbeds(buildLedgerEmbed(channel)).queue(m -> {
+                ledgerMessageByChannel.put(cid, m.getIdLong());
+                creatingLedgerMessage.remove(cid);
+                ensureMessageStack(channel, force);
+            }, fail -> creatingLedgerMessage.remove(cid));
+            return;
+        }
+
+        // 2) Game
+        if (tableMessageByChannel.get(cid) == null) {
+            if (!creatingTableMessage.add(cid)) return;
+
+            channel.sendMessageEmbeds(buildEmbed(cid)).setComponents(buildButtons(cid)).queue(m -> {
+                tableMessageByChannel.put(cid, m.getIdLong());
+                creatingTableMessage.remove(cid);
+                ensureMessageStack(channel, force);
+            }, fail -> creatingTableMessage.remove(cid));
+            return;
+        }
+
+        // 3) System (bottom)
+        if (systemMessageByChannel.get(cid) == null) {
+            if (!creatingSystemMessage.add(cid)) return;
+
+            channel.sendMessageEmbeds(buildSystemEmbed(channel)).queue(m -> {
+                systemMessageByChannel.put(cid, m.getIdLong());
+                creatingSystemMessage.remove(cid);
+            }, fail -> creatingSystemMessage.remove(cid));
+        }
+    }
+
+    private static void upsertLedgerMessage(GuildMessageChannel channel, MessageEmbed embed) {
+        long cid = channel.getIdLong();
+        Long mid = ledgerMessageByChannel.get(cid);
+        if (mid == null) return;
+
+        channel.retrieveMessageById(mid).queue(
+                m -> m.editMessageEmbeds(embed).queue(),
+                f -> { ledgerMessageByChannel.remove(cid); creatingLedgerMessage.remove(cid); refreshTable(channel, true); }
+        );
+    }
+
+    private static void upsertSystemMessage(GuildMessageChannel channel, MessageEmbed embed) {
+        long cid = channel.getIdLong();
+        Long mid = systemMessageByChannel.get(cid);
+        if (mid == null) return;
+
+        channel.retrieveMessageById(mid).queue(
+                m -> m.editMessageEmbeds(embed).queue(),
+                f -> { systemMessageByChannel.remove(cid); creatingSystemMessage.remove(cid); refreshTable(channel, true); }
+        );
     }
 
     private static void upsertTableMessage(GuildMessageChannel channel, MessageEmbed embed, List<ActionRow> rows, boolean force) {
@@ -619,27 +793,45 @@ public class BlackjackGame {
         lastUpdateByChannel.put(cid, now);
 
         Long mid = tableMessageByChannel.get(cid);
-
-        if (mid == null) {
-            if (seated.isEmpty() && waiting.isEmpty() && !roundActive) return;
-            if (!creatingTableMessage.add(cid)) return;
-
-            channel.sendMessageEmbeds(embed).setComponents(rows).queue(m -> {
-                tableMessageByChannel.put(cid, m.getIdLong());
-                creatingTableMessage.remove(cid);
-            }, fail -> creatingTableMessage.remove(cid));
-
-            return;
-        }
+        if (mid == null) return;
 
         channel.retrieveMessageById(mid).queue(
                 m -> m.editMessageEmbeds(embed).setComponents(rows).queue(),
-                f -> {
-                    tableMessageByChannel.remove(cid);
-                    creatingTableMessage.remove(cid);
-                    upsertTableMessage(channel, embed, rows, true);
-                }
+                f -> { tableMessageByChannel.remove(cid); creatingTableMessage.remove(cid); refreshTable(channel, true); }
         );
+    }
+
+    private static MessageEmbed buildLedgerEmbed(GuildMessageChannel channel) {
+        EmbedBuilder eb = new EmbedBuilder()
+                .setTitle("🧾 Ledger")
+                .setColor(new Color(0x95a5a6));
+
+        if (seated.isEmpty() && waiting.isEmpty()) {
+            eb.setDescription("_No players seated._");
+            return eb.build();
+        }
+
+        List<User> everyone = new ArrayList<>();
+        everyone.addAll(seated);
+        for (User u : waiting) if (!everyone.contains(u)) everyone.add(u);
+
+        StringBuilder sb = new StringBuilder();
+        for (User u : everyone) {
+            String uid = u.getId();
+            String display = displayName(channel, u);
+
+            int bal = balancesById.getOrDefault(uid, START_BALANCE);
+            int w = winsById.getOrDefault(uid, 0);
+            int l = lossesById.getOrDefault(uid, 0);
+
+            sb.append("**").append(display).append("** — ")
+              .append("Balance: **$").append(bal).append("**  ")
+              .append("W/L: **").append(w).append("/").append(l).append("**\n");
+        }
+
+        eb.setDescription(sb.toString());
+        eb.setFooter("Blackjack ledger • disappears when the game closes");
+        return eb.build();
     }
 
     private static MessageEmbed buildEmbed(long cid) {
@@ -651,7 +843,6 @@ public class BlackjackGame {
         else if (phase == Phase.RESULTS) eb.setColor(new Color(0x3498db));
         else eb.setColor(new Color(0x2ecc71));
 
-        // Dealer
         String dealerLine;
         if (phase == Phase.BETTING) {
             dealerLine = "_Waiting for bets…_";
@@ -664,7 +855,6 @@ public class BlackjackGame {
         }
         eb.addField("Dealer", dealerLine, false);
 
-        // Players
         StringBuilder p = new StringBuilder();
         for (User u : seated) {
             String uid = u.getId();
@@ -674,8 +864,11 @@ public class BlackjackGame {
             p.append(u.getAsMention()).append(isTurn ? "  ▶️" : "").append("\n");
 
             if (phase == Phase.BETTING) {
-                Integer bet = pendingBetById.get(uid);
-                p.append("• Bet: ").append(bet == null ? "_not set_" : "**$" + bet + "**").append("\n");
+                int staged = stagedBetById.getOrDefault(uid, 0);
+                Integer locked = pendingBetById.get(uid);
+
+                p.append("• Staged: ").append(staged <= 0 ? "_$0_" : "**$" + staged + "**").append("\n");
+                p.append("• Locked: ").append(locked == null ? "_not set_" : "**$" + locked + "**").append("\n");
             } else if (hs != null) {
                 for (int i = 0; i < hs.size(); i++) {
                     HandState h = hs.get(i);
@@ -698,10 +891,16 @@ public class BlackjackGame {
             int l = lossesById.getOrDefault(uid, 0);
             p.append("Balance: **$").append(bal).append("** | Wins: **").append(w).append("** | Losses: **").append(l).append("**\n\n");
         }
+
+        if (!waiting.isEmpty()) {
+            p.append("**Lobby (next round):**\n");
+            for (User u : waiting) p.append("• ").append(u.getAsMention()).append("\n");
+            p.append("\n");
+        }
+
         if (p.length() == 0) p.append("—");
         eb.addField("Players", p.toString(), false);
 
-        // History panel
         Deque<RoundLog> hist = roundHistoryByChannel.getOrDefault(cid, new ArrayDeque<>());
         int page = historyPageByChannel.getOrDefault(cid, 0);
 
@@ -715,20 +914,19 @@ public class BlackjackGame {
             if (rl == null) {
                 historyText = "_No rounds yet._";
             } else {
-                StringBuilder hs = new StringBuilder();
-                hs.append("**Round ").append(page + 1).append("/").append(hist.size()).append("**\n");
-                hs.append("Dealer: ").append(rl.dealer).append(" (**").append(rl.dealerTotal).append("**)\n");
+                StringBuilder hs2 = new StringBuilder();
+                hs2.append("**Round ").append(page + 1).append("/").append(hist.size()).append("**\n");
+                hs2.append("Dealer: ").append(rl.dealer).append(" (**").append(rl.dealerTotal).append("**)\n");
                 int show = Math.min(10, rl.lines.size());
-                for (int i = 0; i < show; i++) hs.append(rl.lines.get(i)).append("\n");
-                if (rl.lines.size() > show) hs.append("_...and ").append(rl.lines.size() - show).append(" more_");
-                historyText = hs.toString();
+                for (int i = 0; i < show; i++) hs2.append(rl.lines.get(i)).append("\n");
+                if (rl.lines.size() > show) hs2.append("_...and ").append(rl.lines.size() - show).append(" more_");
+                historyText = hs2.toString();
             }
         }
         eb.addField("Last Round History", historyText, false);
 
-        // Footer
         if (phase == Phase.BETTING) {
-            eb.setFooter("Betting phase — pick a chip. Round starts soon.");
+            eb.setFooter("Betting phase — build a bet with chips, then press BET to lock it in.");
         } else if (roundActive && currentPlayer != null) {
             eb.setFooter("Turn: " + currentPlayer.getName() + " | Buttons or !hit/!stand/!double/!split");
         } else if (seated.isEmpty() && waiting.isEmpty()) {
@@ -744,45 +942,45 @@ public class BlackjackGame {
         Button join = Button.success(BTN_JOIN, "Join");
         Button leave = Button.danger(BTN_LEAVE, "Leave");
 
-        // history
         Deque<RoundLog> hist = roundHistoryByChannel.getOrDefault(cid, new ArrayDeque<>());
         int size = hist.size();
         int page = historyPageByChannel.getOrDefault(cid, 0);
         Button prev = Button.secondary(BTN_HIST_PREV, "Prev").withDisabled(size == 0 || page >= size - 1);
         Button next = Button.secondary(BTN_HIST_NEXT, "Next").withDisabled(size == 0 || page <= 0);
 
-        // ===== BETTING UI =====
         if (phase == Phase.BETTING) {
-            List<Button> betButtons = new ArrayList<>();
-            for (int b : BET_OPTIONS) {
-                betButtons.add(Button.secondary(BTN_BET_PREFIX + b, "$" + b));
-            }
+            List<Button> chips = new ArrayList<>();
+            for (int b : BET_OPTIONS) chips.add(Button.secondary(BTN_BET_PREFIX + b, "+$" + b));
 
-            List<Button> row1 = betButtons.subList(0, Math.min(5, betButtons.size()));
-            List<Button> row2 = betButtons.size() > 5 ? betButtons.subList(5, betButtons.size()) : List.of();
-
-            Button clear = Button.secondary(BTN_BET_CLEAR, "Clear Bet");
-            Button buyIn  = Button.success(BTN_BUYIN, "Buy In $100");
+            Button clear = Button.secondary(BTN_BET_CLEAR, "Clear");
+            Button bet = Button.primary(BTN_BET_CONFIRM, "BET")
+                    .withEmoji(net.dv8tion.jda.api.entities.emoji.Emoji.fromUnicode("🟡"));
+            Button buyIn = Button.success(BTN_BUYIN, "Buy In $100");
 
             List<ActionRow> rows = new ArrayList<>();
-            rows.add(ActionRow.of(row1));
-            if (!row2.isEmpty()) rows.add(ActionRow.of(row2));
-            rows.add(ActionRow.of(clear, buyIn, leave));
-            rows.add(ActionRow.of(prev, next));
+            rows.add(ActionRow.of(join, leave));
+
+            if (chips.size() <= 5) {
+                rows.add(ActionRow.of(chips));
+            } else {
+                rows.add(ActionRow.of(chips.subList(0, 5)));
+                rows.add(ActionRow.of(chips.subList(5, chips.size())));
+            }
+
+            rows.add(ActionRow.of(clear, bet, buyIn, prev, next));
             return rows;
         }
 
-        // ===== PLAYING UI =====
         boolean turn = (phase == Phase.PLAYING) && roundActive && currentPlayer != null;
 
         Button hit = Button.primary(BTN_HIT, "Hit").withDisabled(!turn);
         Button stand = Button.secondary(BTN_STAND, "Stand").withDisabled(!turn);
 
-        boolean canDoubleNow = turn && canDouble(currentPlayer, getActiveHand(currentPlayer));
-        boolean canSplitNow  = turn && canSplit(currentPlayer, getActiveHand(currentPlayer));
+        boolean canDoubleBtn = turn && canDouble(currentPlayer, getActiveHand(currentPlayer));
+        boolean canSplitBtn  = turn && canSplit(currentPlayer, getActiveHand(currentPlayer));
 
-        Button dbl = Button.primary(BTN_DOUBLE, "Double").withDisabled(!canDoubleNow);
-        Button split = Button.primary(BTN_SPLIT, "Split").withDisabled(!canSplitNow);
+        Button dbl = Button.primary(BTN_DOUBLE, "Double").withDisabled(!canDoubleBtn);
+        Button split = Button.primary(BTN_SPLIT, "Split").withDisabled(!canSplitBtn);
 
         return List.of(
                 ActionRow.of(join, leave),
@@ -836,48 +1034,6 @@ public class BlackjackGame {
         }
     }
 
-    private static void notice(GuildMessageChannel channel, String text) {
-        long cid = channel.getIdLong();
-
-        // cancel prior delete timer
-        ScheduledFuture<?> oldTask = noticeDeleteTaskByChannel.remove(cid);
-        if (oldTask != null) oldTask.cancel(false);
-
-        Long mid = noticeMessageByChannel.get(cid);
-
-        Runnable armDelete = () -> {
-            ScheduledFuture<?> t = SCHED.schedule(() -> {
-                Long m = noticeMessageByChannel.remove(cid);
-                if (m == null) return;
-                channel.retrieveMessageById(m).queue(
-                        msg -> msg.delete().queue(),
-                        fail -> { }
-                );
-            }, NOTICE_TTL_MS, TimeUnit.MILLISECONDS);
-            noticeDeleteTaskByChannel.put(cid, t);
-        };
-
-        if (mid == null) {
-            channel.sendMessage(text).queue(m -> {
-                noticeMessageByChannel.put(cid, m.getIdLong());
-                armDelete.run();
-            }, fail -> armDelete.run());
-            return;
-        }
-
-        channel.retrieveMessageById(mid).queue(
-                m -> m.editMessage(text).queue(v -> armDelete.run(), fail -> armDelete.run()),
-                fail -> {
-                    noticeMessageByChannel.remove(cid);
-                    channel.sendMessage(text).queue(m2 -> {
-                        noticeMessageByChannel.put(cid, m2.getIdLong());
-                        armDelete.run();
-                    }, f2 -> armDelete.run());
-                }
-        );
-    }
-
-
     // -------- Idle close --------
     private static void scheduleIdleClose(GuildMessageChannel channel) {
         long cid = channel.getIdLong();
@@ -898,16 +1054,25 @@ public class BlackjackGame {
             dealerHidden = true;
 
             Long mid = tableMessageByChannel.get(cid);
-            if (mid != null) {
-                channel.retrieveMessageById(mid).queue(
-                        msg -> msg.delete().queue(),
-                        fail -> { }
-                );
-            }
+            if (mid != null) channel.retrieveMessageById(mid).queue(msg -> msg.delete().queue(), fail -> {});
+
+            Long lmid = ledgerMessageByChannel.get(cid);
+            if (lmid != null) channel.retrieveMessageById(lmid).queue(msg -> msg.delete().queue(), fail -> {});
+
+            Long smid = systemMessageByChannel.get(cid);
+            if (smid != null) channel.retrieveMessageById(smid).queue(msg -> msg.delete().queue(), fail -> {});
 
             tableMessageByChannel.remove(cid);
+            ledgerMessageByChannel.remove(cid);
+            systemMessageByChannel.remove(cid);
+
             creatingTableMessage.remove(cid);
+            creatingLedgerMessage.remove(cid);
+            creatingSystemMessage.remove(cid);
+
             lastUpdateByChannel.remove(cid);
+            lastSystemTextByChannel.remove(cid);
+
         }, IDLE_CLOSE_MS, TimeUnit.MILLISECONDS));
     }
 
@@ -958,6 +1123,15 @@ public class BlackjackGame {
 
     private static void sleep(long ms) {
         try { Thread.sleep(ms); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+    }
+
+    private static String displayName(GuildMessageChannel channel, User u) {
+        if (channel == null || u == null) return "Unknown";
+        try {
+            var member = channel.getGuild().getMember(u);
+            if (member != null && member.getEffectiveName() != null) return member.getEffectiveName();
+        } catch (Exception ignored) {}
+        return u.getName();
     }
 
     // -------- HandState --------
@@ -1016,26 +1190,7 @@ public class BlackjackGame {
             sb.append("{\n");
             sb.append("\"balances\":").append(mapToJson(balancesById)).append(",\n");
             sb.append("\"wins\":").append(mapToJson(winsById)).append(",\n");
-            sb.append("\"losses\":").append(mapToJson(lossesById)).append(",\n");
-
-            sb.append("\"ledger\":{\n");
-            boolean firstUser = true;
-            for (var ent : ledgerById.entrySet()) {
-                if (!firstUser) sb.append(",\n");
-                firstUser = false;
-                sb.append("\"").append(escape(ent.getKey())).append("\":[");
-                boolean first = true;
-                for (LedgerEntry le : ent.getValue()) {
-                    if (!first) sb.append(",");
-                    first = false;
-                    sb.append("{\"ts\":\"").append(escape(le.ts)).append("\",")
-                            .append("\"type\":\"").append(escape(le.type)).append("\",")
-                            .append("\"delta\":").append(le.delta).append(",")
-                            .append("\"bal\":").append(le.balanceAfter).append("}");
-                }
-                sb.append("]");
-            }
-            sb.append("\n}\n");
+            sb.append("\"losses\":").append(mapToJson(lossesById)).append("\n");
             sb.append("}\n");
 
             Files.writeString(SAVE_PATH, sb.toString(), StandardCharsets.UTF_8,

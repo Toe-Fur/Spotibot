@@ -16,13 +16,12 @@ public class BlackjackUiListener extends ListenerAdapter {
 
         GuildMessageChannel channel = event.getChannel().asGuildMessageChannel();
 
-        // bet buttons: bj:bet:<amount>
+        // Handle bet buttons like bj:bet:50 (increment staged bet)
         if (id.startsWith(BlackjackGame.BTN_BET_PREFIX)) {
-            String amtStr = id.substring(BlackjackGame.BTN_BET_PREFIX.length());
             try {
-                int amt = Integer.parseInt(amtStr);
+                int amt = Integer.parseInt(id.substring(BlackjackGame.BTN_BET_PREFIX.length()));
                 BlackjackGame.placeBet(event.getUser(), amt, channel);
-            } catch (NumberFormatException ignored) {}
+            } catch (Exception ignored) { }
             return;
         }
 
@@ -32,6 +31,7 @@ public class BlackjackUiListener extends ListenerAdapter {
 
             case BlackjackGame.BTN_BUYIN -> BlackjackGame.buyIn(event.getUser(), channel);
             case BlackjackGame.BTN_BET_CLEAR -> BlackjackGame.clearBet(event.getUser(), channel);
+            case BlackjackGame.BTN_BET_CONFIRM -> BlackjackGame.confirmBet(event.getUser(), channel);
 
             case BlackjackGame.BTN_HIT -> BlackjackGame.action(event.getUser(), BlackjackGame.Action.HIT);
             case BlackjackGame.BTN_STAND -> BlackjackGame.action(event.getUser(), BlackjackGame.Action.STAND);
