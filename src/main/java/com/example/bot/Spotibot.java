@@ -53,7 +53,10 @@ public class Spotibot extends ListenerAdapter {
             JDABuilder.createDefault(BOT_TOKEN)
                 .enableIntents(GatewayIntent.MESSAGE_CONTENT)
                 .setActivity(Activity.playing(STATUS))
-                .addEventListeners(new Spotibot())
+                .addEventListeners(
+                    new Spotibot(),
+                    new BlackjackUiListener()
+                )
                 .build();
         } catch (Exception e) {
             e.printStackTrace();

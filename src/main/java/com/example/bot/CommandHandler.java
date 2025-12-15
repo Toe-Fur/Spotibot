@@ -75,28 +75,27 @@ public class CommandHandler {
         } else if (message.equalsIgnoreCase("!help")) {
             messageChannel.sendMessage(getHelpMessage()).queue();
         } else if (message.equalsIgnoreCase("!blackjack")) {
-            Executors.newSingleThreadExecutor().submit(() -> BlackjackGame.startGame(event.getAuthor(), messageChannel));
+            BlackjackGame.startGame(event.getAuthor(), messageChannel);
         } else if (message.equalsIgnoreCase("!blackjack help")) {
-            Executors.newSingleThreadExecutor().submit(() -> messageChannel.sendMessage(getBlackjackHelpMessage()).queue());
+            messageChannel.sendMessage(getBlackjackHelpMessage()).queue();
         } else if (message.startsWith("!add ")) {
-            Executors.newSingleThreadExecutor().submit(() -> {
-                String[] parts = message.split(" ");
-                if (parts.length == 3) {
-                    try {
-                        int amount = Integer.parseInt(parts[1]);
-                        User targetUser = event.getMessage().getMentions().getUsers().get(0);
-                        BlackjackGame.addBalance(targetUser, amount, messageChannel);
-                    } catch (NumberFormatException e) {
-                        messageChannel.sendMessage("Invalid amount specified.").queue();
-                    } catch (IndexOutOfBoundsException e) {
-                        messageChannel.sendMessage("Please mention a user to add balance to.").queue();
-                    }
-                } else {
-                    messageChannel.sendMessage("Usage: !add <amount> <@user>").queue();
+            String[] parts = message.split(" ");
+            if (parts.length == 3) {
+                try {
+                    int amount = Integer.parseInt(parts[1]);
+                    User targetUser = event.getMessage().getMentions().getUsers().get(0);
+                    BlackjackGame.addBalance(targetUser, amount, messageChannel);
+                } catch (NumberFormatException e) {
+                    messageChannel.sendMessage("Invalid amount specified.").queue();
+                } catch (IndexOutOfBoundsException e) {
+                    messageChannel.sendMessage("Please mention a user to add balance to.").queue();
                 }
-            });
-        } else if (message.equalsIgnoreCase("!hit") || message.equalsIgnoreCase("!stand") || message.equalsIgnoreCase("!double") || message.equalsIgnoreCase("!split") || message.equalsIgnoreCase("!quit") || message.equalsIgnoreCase("!ledger")) {
-            Executors.newSingleThreadExecutor().submit(() -> BlackjackCommands.handleCommand(message, event.getAuthor(), messageChannel));
+            } else {
+                messageChannel.sendMessage("Usage: !add <amount> <@user>").queue();
+            }
+        } else if (message.equalsIgnoreCase("!hit") || message.equalsIgnoreCase("!stand") || message.equalsIgnoreCase("!double")
+                || message.equalsIgnoreCase("!split") || message.equalsIgnoreCase("!quit") || message.equalsIgnoreCase("!ledger")) {
+            BlackjackCommands.handleCommand(message, event.getAuthor(), messageChannel);
         }
     }
 
