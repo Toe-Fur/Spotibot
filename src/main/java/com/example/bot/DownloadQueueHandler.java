@@ -54,33 +54,54 @@ public class DownloadQueueHandler {
         }
     }
 
-    private static void downloadAndQueueSong(String query, String outputFilePath, TrackScheduler trackScheduler, GuildMessageChannel messageChannel, Guild guild) throws IOException, InterruptedException {
+    private static void downloadAndQueueSong(
+            String query,
+            String outputFilePath,
+            TrackScheduler trackScheduler,
+            GuildMessageChannel messageChannel,
+            Guild guild
+    ) throws IOException, InterruptedException {
+
         File cookieFile = new File(ConfigUtils.COOKIE_FILE_PATH);
 
-        ProcessBuilder downloadBuilder;
+        String cookiePathToUse = null;
         if (cookieFile.exists()) {
+            File tmp = File.createTempFile("spotibot-cookies-", ".txt");
+            java.nio.file.Files.copy(
+                    cookieFile.toPath(),
+                    tmp.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING
+            );
+            cookiePathToUse = tmp.getAbsolutePath();
+        }
+
+        ProcessBuilder downloadBuilder;
+
+        if (cookiePathToUse != null) {
             downloadBuilder = new ProcessBuilder(
-                "yt-dlp",
-                "-4",
-                "-f", "bestaudio",
-                "--js-runtimes", "deno",
-                "--no-playlist",
-                "--cookies", cookieFile.getAbsolutePath(),
-                "-o", outputFilePath,
-                query
+                    "yt-dlp",
+                    "-4",
+                    "--js-runtimes", "deno",
+                    "-f", "bestaudio/best",
+                    "--no-playlist",
+                    "--cookies", cookiePathToUse,
+                    "-o", outputFilePath,
+                    query
             );
         } else {
             downloadBuilder = new ProcessBuilder(
-                "yt-dlp",
-                "-4",
-                "-f", "bestaudio",
-                "--no-playlist",
-                "-o", outputFilePath,
-                query
+                    "yt-dlp",
+                    "-4",
+                    "--js-runtimes", "deno",
+                    "-f", "bestaudio/best",
+                    "--no-playlist",
+                    "-o", outputFilePath,
+                    query
             );
         }
 
         downloadBuilder.redirectErrorStream(true);
+        logger.info("Running: " + String.join(" ", downloadBuilder.command()));
 
         Process downloadProcess = downloadBuilder.start();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(downloadProcess.getInputStream()))) {
@@ -90,17 +111,22 @@ public class DownloadQueueHandler {
             }
         }
 
-        boolean completedInTime = downloadProcess.waitFor(120, TimeUnit.SECONDS);
-
+        boolean completedInTime = downloadProcess.waitFor(180, TimeUnit.SECONDS);
         if (!completedInTime) {
             downloadProcess.destroyForcibly();
             logger.severe("Download process timed out for query: " + query);
-            messageChannel.sendMessage("Failed to download song: " + query).queue(msg -> msg.suppressEmbeds(true).queue());
+            messageChannel.sendMessage("Failed to download song (timeout): " + query)
+                    .queue(msg -> msg.suppressEmbeds(true).queue());
+            return;
         }
 
+        int exit = downloadProcess.exitValue();
+        logger.info("yt-dlp exit code: " + exit);
+
         File downloadedFile = new File(outputFilePath);
-        if (!downloadedFile.exists()) {
-            messageChannel.sendMessage("Failed to download song: " + query).queue(msg -> msg.suppressEmbeds(true).queue());
+        if (exit != 0 || !downloadedFile.exists()) {
+            messageChannel.sendMessage("Failed to download song: " + query)
+                    .queue(msg -> msg.suppressEmbeds(true).queue());
         }
     }
 
