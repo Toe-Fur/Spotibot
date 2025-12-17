@@ -41,6 +41,11 @@ public class BlackjackGame {
     private static final long IDLE_CLOSE_MS = 5000;
 
     // Persist stats
+
+    public static final String BTN_LEDGER_PREV = "bj_ledger_prev";
+    public static final String BTN_LEDGER_NEXT = "bj_ledger_next";
+    public static final String BTN_LEDGER_CLOSE = "bj_ledger_close";
+
     private static final Path SAVE_PATH = Paths.get("config", "blackjack.json");
 
     private static final ExecutorService GAME_THREAD =
@@ -1354,12 +1359,15 @@ public class BlackjackGame {
 
     // -------- Ledger persistence --------
     private static class LedgerEntry {
+        public String time; // epoch millis as string
+
         final String ts;
         final String type;
         final int delta;
         final int balanceAfter;
 
         LedgerEntry(String ts, String type, int delta, int balanceAfter) {
+            this.time = String.valueOf(System.currentTimeMillis());
             this.ts = ts;
             this.type = type;
             this.delta = delta;
