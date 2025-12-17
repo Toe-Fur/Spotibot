@@ -4,12 +4,15 @@
 
 Spotibot is a Java-based music bot that allows users to play and manage audio tracks seamlessly. This bot can be run locally or deployed on a server, providing a robust solution for music streaming and scheduling.
 
+## Changelog
+See `CHANGELOG.md` for release notes and history.
+
 # Project Setup and Compilation Guide
 
 ## Requirements
 This project requires the following tools:
 - **Maven** (build tool)
-- **Java 17 JDK** (Java Development Kit)
+- **Java 21 JDK** (Java Development Kit)
 - **YT-DLP**
 
 ## Compilation and Running the Project
@@ -28,14 +31,14 @@ mvn clean package
 ```
 
 ### Step 3: Run the Project
-Execute the generated JAR file. If you have multiple JDK versions installed, explicitly run with JDK 17:
+Execute the generated JAR file. If you have multiple JDK versions installed, explicitly run with JDK 21:
 ```bash
-<path-to-jdk-17>/bin/java -jar target/spotibot-1.0-SNAPSHOT.jar
+<path-to-jdk-21>/bin/java -jar target/spotibot-1.0-SNAPSHOT.jar
 ```
 
-For example, if you installed JDK 17 via Chocolatey:
+For example, if you installed JDK 21 via Chocolatey:
 ```bash
-C:\ProgramData\chocolatey\lib\openjdk17\bin\java -jar target/spotibot-1.0-SNAPSHOT.jar
+C:\ProgramData\chocolatey\lib\openjdk21\bin\java -jar target/spotibot-1.0-SNAPSHOT.jar
 ```
 
 ## Configuration
@@ -70,8 +73,8 @@ The bot requires a `config.json` file in the `bots` directory. You can create th
 
 ## Troubleshooting
 If you encounter any issues:
-- Verify that **Maven**, and **Java 17** are installed and added to your system's `PATH`.
-- To ensure JDK 17 is used, specify the absolute path to the JDK as shown above.
+- Verify that **Maven**, and **Java 21** are installed and added to your system's `PATH`.
+- To ensure JDK 21 is used, specify the absolute path to the JDK as shown above.
 - Ensure that dependencies in the `pom.xml` file are properly declared.
 - Review project configuration settings in the `config.json` file.
 
