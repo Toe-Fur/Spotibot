@@ -8,7 +8,13 @@ import java.io.*;
 
 public class ConfigUtils {
     private static final Logger logger = LoggerFactory.getLogger(ConfigUtils.class);
-    public static final String CONFIG_FOLDER = "./config/";
+    public static final String CONFIG_FOLDER =
+        System.getenv().getOrDefault("CONFIG_DIR", "/app/config/");
+
+    public static final String CONFIG_FILE_PATH = CONFIG_FOLDER + "config.json";
+    public static final String COOKIE_FILE_PATH = CONFIG_FOLDER + "cookies.txt";
+    public static final String BASE_DOWNLOAD_FOLDER = CONFIG_FOLDER + "downloads/";
+
     public static final String CONFIG_FILE_PATH = CONFIG_FOLDER + "config.json";
     public static final String COOKIE_FILE_PATH = CONFIG_FOLDER + "cookies.txt";
     public static String BOT_TOKEN;
@@ -16,7 +22,6 @@ public class ConfigUtils {
     public static int defaultVolume = 60;
     public static String skipEmoji;
     public static String stopEmoji;
-    public static final String BASE_DOWNLOAD_FOLDER = "config/downloads/";
     public static final int QUEUE_PAGE_SIZE = 5;
 
     public static void createConfigFolder() {

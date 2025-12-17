@@ -72,6 +72,14 @@ public class BlackjackGame {
     // Runtime action queues keyed by User
     private static final Map<User, BlockingQueue<Action>> actionQueues = new ConcurrentHashMap<>();
 
+    private static final class LedgerViewState {
+        volatile long messageId;
+        volatile int page;
+        volatile List<String> order = List.of();
+    }
+    private static final Map<Long, LedgerViewState> ledgerViews = new ConcurrentHashMap<>();
+
+
     // Round state
     private static final Map<User, List<HandState>> playerHands = new ConcurrentHashMap<>();
 
@@ -96,6 +104,9 @@ public class BlackjackGame {
     private static final Map<Long, Long> systemMessageByChannel = new ConcurrentHashMap<>();
     private static final Set<Long> creatingSystemMessage        = ConcurrentHashMap.newKeySet();
     private static final Map<Long, String> lastSystemTextByChannel = new ConcurrentHashMap<>();
+
+    // Debounced system-panel updates (keeps clicks feeling instant without spamming full table edits)
+    private static final Map<Long, ScheduledFuture<?>> pendingSystemUpdateByChannel = new ConcurrentHashMap<>();
 
     // Idle close task per channel
     private static final Map<Long, ScheduledFuture<?>> idleCloseTask = new ConcurrentHashMap<>();
@@ -144,7 +155,124 @@ public class BlackjackGame {
     }
 
     public static void showLedger(User user, GuildMessageChannel channel) {
-        refreshTable(channel, true);
+        if (channel == null) return;
+        LedgerViewState st = ledgerViews.computeIfAbsent(channel.getIdLong(), k -> new LedgerViewState());
+        st.order = buildLedgerOrder();
+        if (st.order.isEmpty()) {
+            system(channel, "📒 Ledger is empty (no one has played yet).");
+            return;
+        }
+        st.page = clamp(st.page, 0, st.order.size() - 1);
+        upsertLedgerMessage(channel, st);
+    }
+
+    public static void ledgerPrev(GuildMessageChannel channel) {
+        if (channel == null) return;
+        LedgerViewState st = ledgerViews.get(channel.getIdLong());
+        if (st == null || st.order.isEmpty()) return;
+        st.page = clamp(st.page - 1, 0, st.order.size() - 1);
+        upsertLedgerMessage(channel, st);
+    }
+
+    public static void ledgerNext(GuildMessageChannel channel) {
+        if (channel == null) return;
+        LedgerViewState st = ledgerViews.get(channel.getIdLong());
+        if (st == null || st.order.isEmpty()) return;
+        st.page = clamp(st.page + 1, 0, st.order.size() - 1);
+        upsertLedgerMessage(channel, st);
+    }
+
+    public static void ledgerClose(GuildMessageChannel channel) {
+        if (channel == null) return;
+        LedgerViewState st = ledgerViews.remove(channel.getIdLong());
+        if (st == null || st.messageId == 0L) return;
+        channel.editMessageEmbedsById(st.messageId, new EmbedBuilder()
+                .setTitle("📒 Ledger (closed)")
+                .setDescription("Use `!ledger` to open again.")
+                .setColor(new Color(80, 80, 80))
+                .build())
+            .setComponents()
+            .queue(null, e -> { });
+    }
+
+    private static List<String> buildLedgerOrder() {
+        // Prefer people who have any ledger history; otherwise fall back to balance map.
+        Set<String> ids = new HashSet<>();
+        ids.addAll(ledgerById.keySet());
+        ids.addAll(balancesById.keySet());
+
+        List<String> order = new ArrayList<>(ids);
+        order.sort((a, b) -> Integer.compare(balancesById.getOrDefault(b, START_BALANCE),
+                                            balancesById.getOrDefault(a, START_BALANCE)));
+        return order;
+    }
+
+    private static void upsertLedgerMessage(GuildMessageChannel channel, LedgerViewState st) {
+        st.order = buildLedgerOrder();
+        if (st.order.isEmpty()) return;
+        st.page = clamp(st.page, 0, st.order.size() - 1);
+
+        String uid = st.order.get(st.page);
+        int bal = balancesById.getOrDefault(uid, START_BALANCE);
+
+        Deque<LedgerEntry> dq = ledgerById.getOrDefault(uid, new ArrayDeque<>());
+        int wins = 0, losses = 0, pushes = 0, bj = 0;
+        String last = "—";
+        for (LedgerEntry e : dq) {
+            if (e == null) continue;
+            if (e.time != null && !e.time.isBlank()) last = e.time;
+            if ("WIN".equals(e.type)) wins++;
+            else if ("LOSS".equals(e.type)) losses++;
+            else if ("PUSH".equals(e.type)) pushes++;
+            else if ("BLACKJACK".equals(e.type)) bj++;
+        }
+
+        StringBuilder recent = new StringBuilder();
+        int n = 0;
+        for (LedgerEntry e : dq) {
+            if (e == null) continue;
+            recent.append("• ").append(e.type).append("  ");
+            if (e.delta > 0) recent.append("+");
+            recent.append("$").append(e.delta).append("  →  $").append(e.balanceAfter).append("\n");
+            if (++n >= 10) break;
+        }
+        if (recent.length() == 0) recent.append("No entries yet.\n");
+
+        MessageEmbed embed = new EmbedBuilder()
+                .setTitle("📒 Ledger: <@" + uid + ">  (" + (st.page + 1) + "/" + st.order.size() + ")")
+                .setColor(new Color(46, 204, 113))
+                .addField("Balance", "$" + bal, true)
+                .addField("W/L/P", wins + "/" + losses + "/" + pushes, true)
+                .addField("Blackjacks", String.valueOf(bj), true)
+                .addField("Recent", recent.toString(), false)
+                .setFooter("Last entry: " + last + " • Use Prev/Next to cycle players")
+                .build();
+
+        List<ActionRow> rows = List.of(ActionRow.of(
+                Button.secondary(BTN_LEDGER_PREV, "Prev"),
+                Button.secondary(BTN_LEDGER_NEXT, "Next"),
+                Button.danger(BTN_LEDGER_CLOSE, "Close")
+        ));
+
+        if (st.messageId == 0L) {
+            channel.sendMessageEmbeds(embed)
+                    .setComponents(rows)
+                    .queue(m -> st.messageId = m.getIdLong(), e -> { });
+        } else {
+            channel.editMessageEmbedsById(st.messageId, embed)
+                    .setComponents(rows)
+                    .queue(null, e -> {
+                        // Message got deleted or can't be edited; recreate.
+                        st.messageId = 0L;
+                        channel.sendMessageEmbeds(embed).setComponents(rows)
+                                .queue(m -> st.messageId = m.getIdLong(), err -> { });
+                    });
+        }
+    }
+
+    private static int clamp(int v, int lo, int hi) {
+        if (hi < lo) return lo;
+        return Math.max(lo, Math.min(hi, v));
     }
 
     public static void addBalance(User user, int amount, GuildMessageChannel channel) {
@@ -167,14 +295,27 @@ public class BlackjackGame {
         if (channel == null) return;
         long cid = channel.getIdLong();
 
-        String safe = (text == null || text.isBlank())
-                ? "—"
-                : text;
-
+        String safe = (text == null || text.isBlank()) ? "—" : text;
         lastSystemTextByChannel.put(cid, safe);
 
-        // make sure the 3-message stack exists in order
-        refreshTable(channel, true);
+        requestSystemUpdate(channel);
+    }
+
+    private static void requestSystemUpdate(GuildMessageChannel channel) {
+        if (channel == null) return;
+        long cid = channel.getIdLong();
+
+        ScheduledFuture<?> prev = pendingSystemUpdateByChannel.put(cid,
+                SCHED.schedule(() -> {
+                    // If the system message doesn't exist yet, build the full stack once.
+                    if (systemMessageByChannel.get(cid) == null) {
+                        refreshTable(channel, true);
+                        return;
+                    }
+                    upsertSystemMessage(channel, buildSystemEmbed(channel));
+                }, 80, TimeUnit.MILLISECONDS));
+
+        if (prev != null && !prev.isDone()) prev.cancel(false);
     }
 
     private static MessageEmbed buildSystemEmbed(GuildMessageChannel channel) {
@@ -183,11 +324,32 @@ public class BlackjackGame {
         String msg = lastSystemTextByChannel.getOrDefault(cid,
                 "Ready. Join to play.  •  `!funds <amount> @user`");
 
+        String queueLine = buildQueueLine(channel);
+
+        String desc = queueLine.isBlank() ? msg : (queueLine + "\n\n" + msg);
+
         return new EmbedBuilder()
                 .setTitle("💬 System")
                 .setColor(new Color(0xf1c40f))
-                .setDescription(msg)
+                .setDescription(desc)
                 .build();
+    }
+
+    private static String buildQueueLine(GuildMessageChannel channel) {
+        if (channel == null) return "";
+        if (phase != Phase.PLAYING || !roundActive || currentPlayer == null) return "";
+
+        BlockingQueue<Action> q = actionQueues.get(currentPlayer);
+        if (q == null || q.isEmpty()) return "🎛️ **Action queue:** _(empty)_";
+
+        List<String> items = new ArrayList<>();
+        int i = 0;
+        for (Action a : q) {
+            items.add(a.name());
+            if (++i >= 6) break;
+        }
+        String more = (q.size() > items.size()) ? " …" : "";
+        return "🎛️ **Action queue (" + displayName(channel, currentPlayer) + "):** `" + String.join(" ▸ ", items) + "`" + more;
     }
 
     // -------- Public API --------
@@ -343,12 +505,34 @@ public class BlackjackGame {
         refreshTable(channel, true);
     }
 
-    public static void action(User user, Action action) {
-        if (phase != Phase.PLAYING) return;
-        if (!roundActive) return;
-        if (!user.equals(currentPlayer)) return;
-        offerAction(user, action);
+    /**
+     * Queue an action. We intentionally allow this even when it's NOT your turn yet.
+     * The game thread will consume your queued actions when your turn starts.
+     */
+    public static void action(User user, Action action, GuildMessageChannel channel) {
+        if (user == null || action == null) return;
+
+        // Only allow queueing if you're part of the table (or waiting to be seated).
+        if (!seated.contains(user) && !waiting.contains(user)) {
+            if (channel != null) system(channel, "⚠️ You must **Join** before you can queue actions.");
+            return;
+        }
+
+        BlockingQueue<Action> q = actionQueues.computeIfAbsent(user, k -> new LinkedBlockingQueue<>(16));
+
+        // Keep it snappy: if the queue is full, drop the oldest and accept the newest.
+        if (!q.offer(action)) {
+            q.poll();
+            q.offer(action);
+        }
+
+        if (channel != null) {
+            system(channel, "⏳ Queued **" + action.name() + "** for **" + displayName(channel, user) + "**  (" + q.size() + " in queue)");
+        }
     }
+
+    // Backwards-compatible signature (no channel context)
+    public static void action(User user, Action action) { action(user, action, null); }
 
     public static void historyPrev(GuildMessageChannel channel) {
         long cid = channel.getIdLong();
@@ -386,6 +570,7 @@ public class BlackjackGame {
     }
 
     private static void playRound(GuildMessageChannel channel) {
+        clearAllQueues();
         roundActive = true;
         phase = Phase.BETTING;
 
@@ -1021,6 +1206,12 @@ public class BlackjackGame {
     private static void offerAction(User user, Action action) {
         BlockingQueue<Action> q = actionQueues.get(user);
         if (q != null) q.offer(action);
+    }
+
+    private static void clearAllQueues() {
+        for (BlockingQueue<Action> q : actionQueues.values()) {
+            if (q != null) q.clear();
+        }
     }
 
     private static Action pollAction(User u) {

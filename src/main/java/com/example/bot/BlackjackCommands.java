@@ -13,10 +13,10 @@ public class BlackjackCommands {
             case "!blackjack", "!join" -> BlackjackGame.join(user, channel);
             case "!quit", "!leave", "!exit" -> BlackjackGame.leave(user, channel);
             case "!ledger", "!balance" -> BlackjackGame.showLedger(user, channel);
-            case "!hit" -> BlackjackGame.action(user, BlackjackGame.Action.HIT);
-            case "!stand" -> BlackjackGame.action(user, BlackjackGame.Action.STAND);
-            case "!double" -> BlackjackGame.action(user, BlackjackGame.Action.DOUBLE);
-            case "!split" -> BlackjackGame.action(user, BlackjackGame.Action.SPLIT);
+            case "!hit" -> BlackjackGame.action(user, BlackjackGame.Action.HIT, channel);
+            case "!stand" -> BlackjackGame.action(user, BlackjackGame.Action.STAND, channel);
+            case "!double" -> BlackjackGame.action(user, BlackjackGame.Action.DOUBLE, channel);
+            case "!split" -> BlackjackGame.action(user, BlackjackGame.Action.SPLIT, channel);
             default -> { /* ignore */ }
         }
     }
