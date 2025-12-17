@@ -1,5 +1,5 @@
 # ---------- Build stage ----------
-FROM maven:3.9-eclipse-temurin-17 AS build
+FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /build
 
 COPY pom.xml .
@@ -14,7 +14,7 @@ RUN --mount=type=cache,target=/root/.m2 \
 
 
 # ---------- Runtime stage ----------
-FROM eclipse-temurin:17-jre-jammy
+FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
 ENV TZ=America/Los_Angeles
 
