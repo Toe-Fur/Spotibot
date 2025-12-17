@@ -63,6 +63,7 @@ public class DownloadQueueHandler {
                 "yt-dlp",
                 "-4",
                 "-f", "bestaudio",
+                "--js-runtimes", "deno",
                 "--no-playlist",
                 "--cookies", cookieFile.getAbsolutePath(),
                 "-o", outputFilePath,
@@ -78,6 +79,8 @@ public class DownloadQueueHandler {
                 query
             );
         }
+
+        downloadBuilder.redirectErrorStream(true);
 
         Process downloadProcess = downloadBuilder.start();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(downloadProcess.getInputStream()))) {
