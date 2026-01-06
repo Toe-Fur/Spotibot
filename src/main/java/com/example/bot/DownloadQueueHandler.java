@@ -62,17 +62,31 @@ public class DownloadQueueHandler {
             Guild guild
     ) throws IOException, InterruptedException {
 
-        File cookieFile = new File(ConfigUtils.COOKIE_FILE_PATH);
-
+        // Resolve cookie path (exporter writes to /app/config/cookies.txt)
         String cookiePathToUse = null;
-        if (cookieFile.exists()) {
-            File tmp = File.createTempFile("spotibot-cookies-", ".txt");
-            java.nio.file.Files.copy(
-                    cookieFile.toPath(),
-                    tmp.toPath(),
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING
-            );
-            cookiePathToUse = tmp.getAbsolutePath();
+        File cookieFile = null;
+
+        try {
+            String p = ConfigUtils.COOKIE_FILE_PATH; // set this to "/app/config/cookies.txt"
+            if (p != null && !p.isBlank()) {
+                cookieFile = new File(p);
+                if (cookieFile.exists() && cookieFile.isFile() && cookieFile.length() > 0) {
+                    // Copy to temp so yt-dlp doesn't read a file while exporter might be rewriting it
+                    File tmp = File.createTempFile("spotibot-cookies-", ".txt");
+                    java.nio.file.Files.copy(
+                            cookieFile.toPath(),
+                            tmp.toPath(),
+                            java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                    );
+                    tmp.deleteOnExit();
+                    cookiePathToUse = tmp.getAbsolutePath();
+                    logger.info("Using cookies for yt-dlp (temp copy): " + cookiePathToUse);
+                } else {
+                    logger.warning("cookies.txt missing/empty at: " + p + " (continuing without cookies)");
+                }
+            }
+        } catch (Exception e) {
+            logger.warning("Failed to validate/copy cookies file; continuing without cookies. " + e.getMessage());
         }
 
         ProcessBuilder downloadBuilder;

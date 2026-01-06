@@ -20,6 +20,7 @@ ENV TZ=America/Los_Angeles
 
 COPY --from=build /build/app.jar /app/app.jar
 COPY entrypoint.sh /app/entrypoint.sh
+RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \

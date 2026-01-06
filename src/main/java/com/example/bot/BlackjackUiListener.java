@@ -24,6 +24,11 @@ public class BlackjackUiListener extends ListenerAdapter {
                 BlackjackGame.placeBet(event.getUser(), amt, channel);
                 ack = "Queued bet: **$" + amt + "**";
             } catch (Exception ignored) { }
+            if (ack != null && !ack.isBlank()) {
+                event.getHook().editOriginal(ack).queue();
+            } else {
+                event.getHook().editOriginal("✅").queue();
+            }
             return;
         }
 
