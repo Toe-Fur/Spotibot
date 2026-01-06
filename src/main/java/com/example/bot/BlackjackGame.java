@@ -22,7 +22,7 @@ public class BlackjackGame {
     public enum Action { HIT, STAND, DOUBLE, SPLIT }
 
     private static final int START_BALANCE = 100;
-    private static final int TURN_TIMEOUT_SECONDS = 45;
+    private static final int TURN_TIMEOUT_SECONDS = 90;
 
     // Betting
     private static final int[] BET_OPTIONS = {5, 10, 25, 50, 100, 500, 1000};
