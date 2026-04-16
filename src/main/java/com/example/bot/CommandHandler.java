@@ -45,7 +45,6 @@ public class CommandHandler {
                 }
 
                 guild.getAudioManager().setSendingHandler(new AudioPlayerSendHandler(trackScheduler.getPlayer()));
-                guild.getAudioManager().setAutoReconnect(false); // diag: disable reconnect loop so we see one clean failure
                 guild.getAudioManager().openAudioConnection(voiceChannel);
                 trackScheduler.getPlayer().setVolume(ConfigUtils.defaultVolume);
 

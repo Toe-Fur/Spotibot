@@ -30,13 +30,38 @@
             <id>lavalink-releases</id>
             <url>https://maven.lavalink.dev/releases</url>
         </repository>
+        <repository>
+            <id>lavalink-snapshots</id>
+            <url>https://maven.lavalink.dev/snapshots</url>
+        </repository>
     </repositories>
 
     <dependencies>
         <dependency>
             <groupId>net.dv8tion</groupId>
             <artifactId>JDA</artifactId>
-            <version>5.2.1</version>
+            <version>6.4.1</version>
+        </dependency>
+        <!-- DAVE (E2EE voice) support — required since Discord enforced it March 2026 -->
+        <dependency>
+            <groupId>moe.kyokobot.libdave</groupId>
+            <artifactId>adapter-jda</artifactId>
+            <version>0.1.2</version>
+        </dependency>
+        <dependency>
+            <groupId>moe.kyokobot.libdave</groupId>
+            <artifactId>impl-jni</artifactId>
+            <version>0.1.2</version>
+        </dependency>
+        <dependency>
+            <groupId>moe.kyokobot.libdave</groupId>
+            <artifactId>natives-linux-x86-64</artifactId>
+            <version>0.1.2</version>
+        </dependency>
+        <dependency>
+            <groupId>moe.kyokobot.libdave</groupId>
+            <artifactId>natives-linux-aarch64</artifactId>
+            <version>0.1.2</version>
         </dependency>
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
