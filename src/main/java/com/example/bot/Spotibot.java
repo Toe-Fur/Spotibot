@@ -11,7 +11,7 @@ import net.dv8tion.jda.api.events.guild.voice.GuildVoiceUpdateEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.entities.Activity;
-import moe.kyokobot.libdave.jni.NativeDaveFactory;
+import moe.kyokobot.libdave.NativeDaveFactory;
 import moe.kyokobot.libdave.jda.LDJDADaveSessionFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
