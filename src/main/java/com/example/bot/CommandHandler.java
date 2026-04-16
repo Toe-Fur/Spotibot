@@ -8,7 +8,6 @@ import net.dv8tion.jda.api.entities.emoji.Emoji;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.events.message.react.MessageReactionAddEvent;
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayerManager;
-import com.sedmelluq.discord.lavaplayer.player.DefaultAudioPlayerManager;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import java.util.concurrent.BlockingQueue;
 import java.util.Map;
@@ -31,9 +30,8 @@ public class CommandHandler {
         String message = event.getMessage().getContentRaw();
         GuildMessageChannel messageChannel = event.getChannel().asGuildMessageChannel();
         Guild guild = event.getGuild();
-        TrackScheduler trackScheduler = trackSchedulerRegistry.getOrCreate(guild, bot, playerManager.createPlayer());
+        TrackScheduler trackScheduler = trackSchedulerRegistry.getOrCreate(guild, bot);
 
-        trackScheduler.getPlayer().setVolume(ConfigUtils.defaultVolume);
         String serverFolder = ConfigUtils.BASE_DOWNLOAD_FOLDER + guild.getId() + "/";
 
         if (message.startsWith("!play ")) {
@@ -48,6 +46,7 @@ public class CommandHandler {
 
                 guild.getAudioManager().setSendingHandler(new AudioPlayerSendHandler(trackScheduler.getPlayer()));
                 guild.getAudioManager().openAudioConnection(voiceChannel);
+                trackScheduler.getPlayer().setVolume(ConfigUtils.defaultVolume);
 
                 if (input.contains("spotify.com/track")) {
                     String trackId = SpotifyUtils.extractSpotifyId(input);
@@ -140,7 +139,8 @@ public class CommandHandler {
         if (event.getUser().isBot()) return;
 
         Guild guild = event.getGuild();
-        TrackScheduler trackScheduler = trackSchedulerRegistry.getOrCreate(guild, new Spotibot(), new DefaultAudioPlayerManager().createPlayer());
+        TrackScheduler trackScheduler = trackSchedulerRegistry.get(guild);
+        if (trackScheduler == null) return;
 
         event.retrieveMessage().queue(message -> {
             if (!message.getAuthor().getId().equals(event.getJDA().getSelfUser().getId())) {
@@ -203,9 +203,9 @@ public class CommandHandler {
                 logger.error("Executor shutdown interrupted", e);
             }
 
+            bot.getDownloadQueue().clear();
             bot.setDownloadExecutor(Executors.newCachedThreadPool());
             bot.startDownloadQueueProcessorPublic();
-            bot.getDownloadQueue().clear();
         }
 
         if (trackSchedulerRegistry != null) {
