@@ -155,25 +155,29 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
         playerManager.loadItem(file.getAbsolutePath(), new AudioLoadResultHandler() {
             @Override
             public void trackLoaded(AudioTrack track) {
-                track.setUserData(file.getAbsolutePath()); // Attach the file path for each track
-                queue(track); // Queue the track
+                track.setUserData(file.getAbsolutePath());
+                queue(track);
                 trackTitles.put(track.getIdentifier(), title.replace("ytsearch:", "").trim());
                 logger.info("Loaded and queued track: " + title);
+                decrementPendingDownloads(); // decrement only after track is actually queued
             }
 
             @Override
             public void playlistLoaded(AudioPlaylist playlist) {
                 logger.warn("Unexpected playlist loaded: " + playlist.getName());
+                decrementPendingDownloads();
             }
 
             @Override
             public void noMatches() {
                 logger.warn("No matches found for file: " + file.getAbsolutePath());
+                decrementPendingDownloads();
             }
 
             @Override
             public void loadFailed(FriendlyException exception) {
                 logger.error("Failed to load track: " + title, exception);
+                decrementPendingDownloads();
             }
         });
     }

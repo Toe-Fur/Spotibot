@@ -21,6 +21,7 @@ public class DownloadQueueHandler {
 
         trackScheduler.incrementPendingDownloads();
         downloadQueue.offer(() -> {
+            boolean delegatedToQueueSong = false;
             try {
                 String query = input.contains("youtube.com") || input.contains("youtu.be") ? input : "ytsearch:" + input;
                 String sanitizedSongName = sanitizeFileName(input);
@@ -32,6 +33,7 @@ public class DownloadQueueHandler {
                 }
 
                 if (downloadedFile.exists()) {
+                    delegatedToQueueSong = true; // queueSong's load callbacks will decrement
                     trackScheduler.queueSong(downloadedFile, input);
                     messageChannel.sendMessage(String.format("📍 **Queued:** `%s`", input)).queue(msg -> msg.suppressEmbeds(true).queue());
                 } else {
@@ -41,7 +43,9 @@ public class DownloadQueueHandler {
                 messageChannel.sendMessage("Error downloading or queuing track: " + e.getMessage()).queue(msg -> msg.suppressEmbeds(true).queue());
                 logger.severe("Error processing track: " + input + " - " + e.getMessage());
             } finally {
-                trackScheduler.decrementPendingDownloads();
+                if (!delegatedToQueueSong) {
+                    trackScheduler.decrementPendingDownloads();
+                }
             }
         });
     }
