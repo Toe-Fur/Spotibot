@@ -74,6 +74,13 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
                 .setTitle("🎵 Now Playing")
                 .setDescription("**" + title + "**")
                 .setFooter("!pause  •  !skip  •  !stop  •  !queue");
+        long durationMs = track.getDuration();
+        if (durationMs > 0 && durationMs != Long.MAX_VALUE) {
+            long secs = durationMs / 1000;
+            long h = secs / 3600, m = (secs % 3600) / 60, s = secs % 60;
+            String dur = h > 0 ? String.format("%d:%02d:%02d", h, m, s) : String.format("%d:%02d", m, s);
+            eb.addField("Duration", dur, true);
+        }
         notifyChannel.sendMessageEmbeds(eb.build()).queue(null, e -> {});
     }
 
