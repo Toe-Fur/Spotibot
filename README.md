@@ -78,12 +78,14 @@ Each Discord server gets its own folder under the config directory, named by gui
 ```
 config/
 ├── config.json
+├── spotifyconfig.json   (optional)
 ├── cookies.txt          (optional)
-├── 123456789012345678/  ← Guild A
-│   ├── never_gonna_give_you_up.webm
-│   └── bohemian_rhapsody.webm
-└── 987654321098765432/  ← Guild B
-    └── some_other_song.webm
+└── downloads/
+    ├── 123456789012345678/  ← Guild A
+    │   ├── never_gonna_give_you_up.webm
+    │   └── bohemian_rhapsody.webm
+    └── 987654321098765432/  ← Guild B
+        └── some_other_song.webm
 ```
 
 Files are named by sanitizing the search query or URL (non-alphanumeric characters replaced with `_`) and saved as `.webm` (best available audio format selected by yt-dlp).
@@ -353,11 +355,13 @@ The `/app/config` volume will be created automatically on the host at the path D
 
 ```
 config/
-├── config.json          ← bot configuration
+├── config.json          ← bot configuration (required)
+├── spotifyconfig.json   ← Spotify credentials (optional, enables Spotify URLs)
 ├── cookies.txt          ← YouTube cookies (optional, see below)
-└── <guild-id>/          ← downloaded audio cache per server
-    ├── song-title.webm
-    └── ...
+└── downloads/
+    └── <guild-id>/      ← downloaded audio cache per server
+        ├── song_title.webm
+        └── ...
 ```
 
 ---
@@ -388,18 +392,20 @@ Spotibot resolves Spotify links by fetching track metadata via the Spotify Web A
 ### Setup
 
 1. Go to [https://developer.spotify.com/dashboard](https://developer.spotify.com/dashboard)
-2. Create an app — note the **Client ID** and **Client Secret**
-3. Add them to `config.json`:
+2. Log in → **Create app** — name and description can be anything; set the redirect URI to `http://localhost`
+3. Open the app → **Settings** → copy **Client ID** and **Client Secret**
+4. Create a **separate** file called `spotifyconfig.json` in your config directory (next to `config.json`):
 
 ```json
 {
-  "bot_token": "...",
-  "spotify_client_id": "YOUR_CLIENT_ID",
-  "spotify_client_secret": "YOUR_CLIENT_SECRET"
+  "client_id": "YOUR_CLIENT_ID",
+  "client_secret": "YOUR_CLIENT_SECRET"
 }
 ```
 
-Without these, Spotify URLs will return an error. YouTube URLs and search terms always work without Spotify credentials.
+Spotibot uses the [Client Credentials flow](https://developer.spotify.com/documentation/web-api/tutorials/client-credentials-flow) — machine-to-machine, no user login or OAuth callback needed. The token is fetched automatically on first use and refreshed before it expires.
+
+Without `spotifyconfig.json`, Spotify URLs will return an error. YouTube URLs and plain search terms always work without Spotify credentials.
 
 ---
 
