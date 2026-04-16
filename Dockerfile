@@ -22,18 +22,23 @@ COPY --from=build /build/app.jar /app/app.jar
 COPY entrypoint.sh /app/entrypoint.sh
 RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
-RUN apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      curl ca-certificates ffmpeg python3 unzip && \
+ARG TARGETARCH
+RUN for i in 1 2 3; do \
+      apt-get update && \
+      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        curl ca-certificates ffmpeg python3 unzip && \
+      break; \
+    done && \
     rm -rf /var/lib/apt/lists/* && \
     \
-    # yt-dlp
-    curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+    # yt-dlp (pure Python — arch-independent)
+    curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
       -o /usr/local/bin/yt-dlp && \
     chmod +x /usr/local/bin/yt-dlp && \
     \
-    # Deno (JS runtime for yt-dlp challenges)
-    curl -L https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip \
+    # Deno — pick the right binary for the target arch
+    DENO_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "aarch64-unknown-linux-gnu" || echo "x86_64-unknown-linux-gnu") && \
+    curl -fsSL "https://github.com/denoland/deno/releases/latest/download/deno-${DENO_ARCH}.zip" \
       -o /tmp/deno.zip && \
     unzip /tmp/deno.zip -d /usr/local/bin && \
     chmod +x /usr/local/bin/deno && \
