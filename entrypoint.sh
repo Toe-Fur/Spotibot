@@ -39,4 +39,4 @@ if [ ! -s /app/config/config.json ]; then
 JSON
 fi
 
-exec java -jar /app/app.jar
+exec java -Djava.net.preferIPv4Stack=true -jar /app/app.jar
