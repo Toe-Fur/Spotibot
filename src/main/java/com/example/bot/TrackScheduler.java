@@ -234,7 +234,10 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
 
     // Disconnects the bot from the guild's voice channel
     private void leaveVoiceChannel() {
-        logger.info("Leaving voice channel for guild: " + guild.getId());
+        logger.warn("leaveVoiceChannel called for guild: {} | pendingDownloads={} | queueSize={} | playing={}",
+            guild.getId(), pendingDownloadCount.get(), queue.size(),
+            player.getPlayingTrack() != null ? player.getPlayingTrack().getInfo().title : "none",
+            new Exception("stack trace"));
         guild.getAudioManager().closeAudioConnection();
     }
 

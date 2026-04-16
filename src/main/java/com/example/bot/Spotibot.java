@@ -6,6 +6,7 @@ import com.sedmelluq.discord.lavaplayer.source.AudioSourceManagers;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.events.message.react.MessageReactionAddEvent;
+import net.dv8tion.jda.api.events.guild.voice.GuildVoiceUpdateEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.entities.Activity;
@@ -78,6 +79,20 @@ public class Spotibot extends ListenerAdapter {
     @Override
     public void onMessageReactionAdd(MessageReactionAddEvent event) {
         CommandHandler.handleReaction(event, trackSchedulerRegistry, queuePageMap);
+    }
+
+    @Override
+    public void onGuildVoiceUpdate(GuildVoiceUpdateEvent event) {
+        if (!event.getMember().getUser().equals(event.getJDA().getSelfUser())) return;
+        if (event.getChannelLeft() != null && event.getChannelJoined() != null) {
+            logger.info("[VOICE] Bot moved: {} -> {}", event.getChannelLeft().getName(), event.getChannelJoined().getName());
+        } else if (event.getChannelLeft() != null) {
+            logger.warn("[VOICE] Bot LEFT voice channel: {} — caller: {}",
+                event.getChannelLeft().getName(),
+                Thread.currentThread().getStackTrace()[2]);
+        } else if (event.getChannelJoined() != null) {
+            logger.info("[VOICE] Bot JOINED voice channel: {}", event.getChannelJoined().getName());
+        }
     }
 
     private void startDownloadQueueProcessor() {
