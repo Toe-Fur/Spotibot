@@ -407,6 +407,12 @@ Spotibot uses the [Client Credentials flow](https://developer.spotify.com/docume
 
 Without `spotifyconfig.json`, Spotify URLs will return an error. YouTube URLs and plain search terms always work without Spotify credentials.
 
+### Known limitation — Spotify curated playlists
+
+Spotify's algorithmically generated playlists (Discover Weekly, Daily Mix, Release Radar, etc.) are tied to your personal account and cannot be accessed via the Client Credentials API that Spotibot uses. Attempting to play one will return a friendly error in Discord explaining why.
+
+**Workaround:** Open the playlist in Spotify, select all tracks, and add them to your own playlist (set to public). Share that playlist URL instead — user-created public playlists work fine.
+
 ---
 
 ## Blackjack

@@ -11,6 +11,7 @@ import net.dv8tion.jda.api.components.buttons.Button;
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayerManager;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import java.awt.Color;
+import java.io.IOException;
 import java.util.concurrent.BlockingQueue;
 import java.util.Map;
 import java.util.List;
@@ -60,9 +61,27 @@ public class CommandHandler {
                     DownloadQueueHandler.queueAndPlay(trackTitle, trackScheduler, messageChannel, guild, serverFolder, downloadQueue);
                 } else if (input.contains("spotify.com/playlist")) {
                     String playlistId = SpotifyUtils.extractSpotifyId(input);
-                    List<String> trackTitles = SpotifyUtils.getPlaylistTracks(playlistId);
-                    for (String trackTitle : trackTitles) {
-                        DownloadQueueHandler.queueAndPlay(trackTitle, trackScheduler, messageChannel, guild, serverFolder, downloadQueue);
+                    try {
+                        List<String> trackTitles = SpotifyUtils.getPlaylistTracks(playlistId);
+                        if (trackTitles.isEmpty()) {
+                            messageChannel.sendMessage("❌ That Spotify playlist is empty or has no playable tracks.").queue();
+                            return;
+                        }
+                        messageChannel.sendMessage("📋 Found **" + trackTitles.size() + "** tracks. Queuing...").queue();
+                        for (String trackTitle : trackTitles) {
+                            DownloadQueueHandler.queueAndPlay(trackTitle, trackScheduler, messageChannel, guild, serverFolder, downloadQueue);
+                        }
+                    } catch (IOException e) {
+                        if ("SPOTIFY_NOT_ACCESSIBLE".equals(e.getMessage())) {
+                            messageChannel.sendMessage(
+                                "❌ **That playlist isn't accessible.**\n" +
+                                "Spotify's curated playlists (Discover Weekly, Daily Mixes, etc.) are locked to your account and can't be read by bots.\n\n" +
+                                "**Workaround:** Copy the songs into your own Spotify playlist, make it public, and share that link instead."
+                            ).queue();
+                        } else {
+                            messageChannel.sendMessage("❌ Spotify error: " + e.getMessage()).queue();
+                        }
+                        return;
                     }
                 } else if (input.contains("youtube.com/playlist")) {
                     final GuildMessageChannel ch = messageChannel;

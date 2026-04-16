@@ -93,6 +93,9 @@ public class SpotifyUtils {
                     authenticate();
                     return getPlaylistTracks(playlistId);
                 }
+                if (response.code() == 404) {
+                    throw new IOException("SPOTIFY_NOT_ACCESSIBLE");
+                }
                 if (!response.isSuccessful())
                     throw new IOException("Spotify API error: HTTP " + response.code());
 
