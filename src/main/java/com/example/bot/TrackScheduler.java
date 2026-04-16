@@ -16,6 +16,7 @@ import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.event.AudioEventListener {
     private static final Logger logger = LoggerFactory.getLogger(TrackScheduler.class);
@@ -26,6 +27,7 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
     private final LinkedBlockingQueue<AudioTrack> queue; // Queue for managing tracks
     private AudioTrack currentTrack; // The track currently playing
     private final Guild guild; // The guild associated with this scheduler
+    private final AtomicInteger pendingDownloadCount = new AtomicInteger(0); // Tracks in-flight downloads
     // Constructor to initialize the scheduler
     public TrackScheduler(AudioPlayerManager playerManager, AudioPlayer player, Spotibot bot, Guild guild) {
         this.playerManager = playerManager; // Initialize playerManager
@@ -115,10 +117,12 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
             // Start the next track
             player.startTrack(currentTrack, false);
             logger.info("[" + timestamp + "] Started next track: " + currentTrack.getInfo().title);
+        } else if (pendingDownloadCount.get() > 0) {
+            // Downloads still in flight — stay in the channel and wait
+            logger.info("[" + timestamp + "] Scheduler queue empty but {} download(s) still pending; staying in channel.", pendingDownloadCount.get());
         } else {
-            // No more tracks in the queue
-            logger.info("[" + timestamp + "] Queue is empty. Stopping playback.");
-            player.stopTrack();
+            // Nothing queued and nothing downloading — leave
+            logger.info("[" + timestamp + "] Queue empty, no pending downloads. Leaving voice channel.");
             leaveVoiceChannel();
         }
 
@@ -174,9 +178,19 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
         });
     }
 
-    // Checks if the queue is empty and no track is currently playing
+    // Called before a download is submitted so the scheduler knows a track is incoming
+    public void incrementPendingDownloads() {
+        pendingDownloadCount.incrementAndGet();
+    }
+
+    // Called after a download completes (success or failure)
+    public void decrementPendingDownloads() {
+        pendingDownloadCount.decrementAndGet();
+    }
+
+    // Checks if the queue is empty, no track is playing, and no downloads are pending
     public boolean isQueueEmpty() {
-        return queue.isEmpty() && player.getPlayingTrack() == null;
+        return queue.isEmpty() && player.getPlayingTrack() == null && pendingDownloadCount.get() == 0;
     }
 
     // Deletes the file for the current track

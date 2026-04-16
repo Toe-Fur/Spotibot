@@ -21,17 +21,23 @@ public class TrackSchedulerRegistry {
     }
 
     /**
+     * Returns the existing TrackScheduler for a guild, or null if none exists.
+     */
+    public TrackScheduler get(Guild guild) {
+        return trackSchedulers.get(guild.getIdLong());
+    }
+
+    /**
      * Retrieves an existing TrackScheduler for a guild or creates a new one if it doesn't exist.
+     * The AudioPlayer is created internally only when a new scheduler is actually needed.
      *
      * @param guild The guild for which the scheduler is needed.
      * @param bot   The main bot instance.
-     * @param player The AudioPlayer associated with this scheduler.
      * @return The TrackScheduler for the given guild.
      */
-    public TrackScheduler getOrCreate(Guild guild, Spotibot bot, AudioPlayer player) {
-        // Check if a scheduler already exists for the guild
+    public TrackScheduler getOrCreate(Guild guild, Spotibot bot) {
         return trackSchedulers.computeIfAbsent(guild.getIdLong(), guildId ->
-            new TrackScheduler(playerManager, player, bot, guild) // Create a new scheduler
+            new TrackScheduler(playerManager, playerManager.createPlayer(), bot, guild)
         );
     }
 }

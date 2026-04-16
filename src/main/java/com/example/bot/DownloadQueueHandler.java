@@ -19,6 +19,7 @@ public class DownloadQueueHandler {
             return;
         }
 
+        trackScheduler.incrementPendingDownloads();
         downloadQueue.offer(() -> {
             try {
                 String query = input.contains("youtube.com") || input.contains("youtu.be") ? input : "ytsearch:" + input;
@@ -39,6 +40,8 @@ public class DownloadQueueHandler {
             } catch (IOException | InterruptedException e) {
                 messageChannel.sendMessage("Error downloading or queuing track: " + e.getMessage()).queue(msg -> msg.suppressEmbeds(true).queue());
                 logger.severe("Error processing track: " + input + " - " + e.getMessage());
+            } finally {
+                trackScheduler.decrementPendingDownloads();
             }
         });
     }
