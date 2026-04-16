@@ -10,10 +10,13 @@ import java.io.File;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.LinkedBlockingQueue;
+import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.Guild;
+import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler;
 import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
+import java.awt.Color;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -22,12 +25,13 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
     private static final Logger logger = LoggerFactory.getLogger(TrackScheduler.class);
 
     private final Map<String, String> trackTitles = new ConcurrentHashMap<>();
-    private final AudioPlayerManager playerManager; // The audio player manager
-    private final AudioPlayer player; // The audio player responsible for playback
-    private final LinkedBlockingQueue<AudioTrack> queue; // Queue for managing tracks
-    private AudioTrack currentTrack; // The track currently playing
-    private final Guild guild; // The guild associated with this scheduler
-    private final AtomicInteger pendingDownloadCount = new AtomicInteger(0); // Tracks in-flight downloads
+    private final AudioPlayerManager playerManager;
+    private final AudioPlayer player;
+    private final LinkedBlockingQueue<AudioTrack> queue;
+    private AudioTrack currentTrack;
+    private final Guild guild;
+    private final AtomicInteger pendingDownloadCount = new AtomicInteger(0);
+    private volatile GuildMessageChannel notifyChannel;
     // Constructor to initialize the scheduler
     public TrackScheduler(AudioPlayerManager playerManager, AudioPlayer player, Spotibot bot, Guild guild) {
         this.playerManager = playerManager; // Initialize playerManager
@@ -37,6 +41,10 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
         this.player.addListener(this); // Register this scheduler as an event listener
     }
 
+    public void setNotifyChannel(GuildMessageChannel channel) {
+        this.notifyChannel = channel;
+    }
+
     // Getter for the audio player
     public AudioPlayer getPlayer() {
         return player;
@@ -44,16 +52,29 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
 
     // Adds a track to the queue or plays it immediately if nothing is playing
     public void queue(AudioTrack track) {
-        track.setUserData(track.getIdentifier()); // Attach a unique identifier for easier tracking
+        track.setUserData(track.getIdentifier());
         String timestamp = getCurrentTimestamp();
-        logger.info("[" + timestamp + "] Queueing track: " + track.getInfo().title + " with identifier: " + track.getIdentifier());
+        logger.info("[" + timestamp + "] Queueing track: " + track.getInfo().title);
         if (!player.startTrack(track, true)) {
             queue.offer(track);
             logger.info("[" + timestamp + "] Track added to queue: " + track.getInfo().title);
         } else {
             currentTrack = track;
             logger.info("[" + timestamp + "] Now playing: " + track.getInfo().title);
+            sendNowPlaying(track);
         }
+    }
+
+    private void sendNowPlaying(AudioTrack track) {
+        if (notifyChannel == null) return;
+        String title = trackTitles.getOrDefault(track.getIdentifier(), track.getInfo().title);
+        title = title.replace("ytsearch:", "").trim();
+        EmbedBuilder eb = new EmbedBuilder()
+                .setColor(new Color(0x1db954))
+                .setTitle("🎵 Now Playing")
+                .setDescription("**" + title + "**")
+                .setFooter("!skip  •  !stop  •  !queue");
+        notifyChannel.sendMessageEmbeds(eb.build()).queue(null, e -> {});
     }
 
     // Method to get the file name of the currently playing track
@@ -114,9 +135,9 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
         currentTrack = queue.poll();
 
         if (currentTrack != null) {
-            // Start the next track
             player.startTrack(currentTrack, false);
             logger.info("[" + timestamp + "] Started next track: " + currentTrack.getInfo().title);
+            sendNowPlaying(currentTrack);
         } else if (pendingDownloadCount.get() > 0) {
             // Downloads still in flight — stay in the channel and wait
             logger.info("[" + timestamp + "] Scheduler queue empty but {} download(s) still pending; staying in channel.", pendingDownloadCount.get());
@@ -234,10 +255,7 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
 
     // Disconnects the bot from the guild's voice channel
     private void leaveVoiceChannel() {
-        logger.warn("leaveVoiceChannel called for guild: {} | pendingDownloads={} | queueSize={} | playing={}",
-            guild.getId(), pendingDownloadCount.get(), queue.size(),
-            player.getPlayingTrack() != null ? player.getPlayingTrack().getInfo().title : "none",
-            new Exception("stack trace"));
+        logger.info("[VOICE] Queue empty — leaving voice channel for guild {}", guild.getId());
         guild.getAudioManager().closeAudioConnection();
     }
 

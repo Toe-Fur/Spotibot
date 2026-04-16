@@ -47,6 +47,7 @@ public class CommandHandler {
                 guild.getAudioManager().setSendingHandler(new AudioPlayerSendHandler(trackScheduler.getPlayer()));
                 guild.getAudioManager().openAudioConnection(voiceChannel);
                 trackScheduler.getPlayer().setVolume(ConfigUtils.defaultVolume);
+                trackScheduler.setNotifyChannel(messageChannel);
 
                 if (input.contains("spotify.com/track")) {
                     String trackId = SpotifyUtils.extractSpotifyId(input);
@@ -165,13 +166,9 @@ public class CommandHandler {
     private static void handleSkipCommand(Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler) {
         if (trackScheduler.getPlayer().getPlayingTrack() != null) {
             trackScheduler.nextTrack();
-            messageChannel.sendMessage(ConfigUtils.skipEmoji + " Skipped to the next track.").queue(msg -> msg.suppressEmbeds(true).queue());
-            if (trackScheduler.isQueueEmpty()) {
-                String serverFolder = ConfigUtils.BASE_DOWNLOAD_FOLDER + guild.getId() + "/";
-                handleStopCommand(guild, messageChannel, trackScheduler, serverFolder, null, null, null);
-            }
+            messageChannel.sendMessage(ConfigUtils.skipEmoji + " Skipped.").queue(msg -> msg.suppressEmbeds(true).queue());
         } else {
-            messageChannel.sendMessage("No track is currently playing to skip.").queue(msg -> msg.suppressEmbeds(true).queue());
+            messageChannel.sendMessage("Nothing is playing right now.").queue(msg -> msg.suppressEmbeds(true).queue());
         }
     }
 
@@ -221,8 +218,9 @@ public class CommandHandler {
 
         AudioTrack currentTrack = trackScheduler.getCurrentTrack();
         if (currentTrack != null) {
-            String title = trackScheduler.getTitle(currentTrack.getIdentifier()).replace("ytsearch:", "").trim();
-            queueMessage.append("🎵 Now Playing: ").append(title != null ? title : "Unknown Title").append("\n");
+            String title = trackScheduler.getTitle(currentTrack.getIdentifier());
+            title = title != null ? title.replace("ytsearch:", "").trim() : "Unknown Title";
+            queueMessage.append("🎵 Now Playing: ").append(title).append("\n");
         }
 
         int startIndex = page * ConfigUtils.QUEUE_PAGE_SIZE;
@@ -231,8 +229,9 @@ public class CommandHandler {
         List<AudioTrack> trackList = new ArrayList<>(playbackQueue);
         for (int i = startIndex; i < endIndex; i++) {
             AudioTrack track = trackList.get(i);
-            String title = trackScheduler.getTitle(track.getIdentifier()).replace("ytsearch:", "").trim();
-            queueMessage.append("📍 ").append(i + 1).append(". ").append(title != null ? title : "Unknown Title").append("\n");
+            String title = trackScheduler.getTitle(track.getIdentifier());
+            title = title != null ? title.replace("ytsearch:", "").trim() : "Unknown Title";
+            queueMessage.append("📍 ").append(i + 1).append(". ").append(title).append("\n");
         }
 
         if (bot != null) {
@@ -257,8 +256,9 @@ public class CommandHandler {
 
         AudioTrack currentTrack = trackScheduler.getCurrentTrack();
         if (currentTrack != null) {
-            String title = trackScheduler.getTitle(currentTrack.getIdentifier()).replace("ytsearch:", "").trim();
-            queueMessage.append("🎵 Now Playing: ").append(title != null ? title : "Unknown Title").append("\n");
+            String title = trackScheduler.getTitle(currentTrack.getIdentifier());
+            title = title != null ? title.replace("ytsearch:", "").trim() : "Unknown Title";
+            queueMessage.append("🎵 Now Playing: ").append(title).append("\n");
         }
 
         int startIndex = page * ConfigUtils.QUEUE_PAGE_SIZE;
@@ -267,8 +267,9 @@ public class CommandHandler {
         List<AudioTrack> trackList = new ArrayList<>(playbackQueue);
         for (int i = startIndex; i < endIndex; i++) {
             AudioTrack track = trackList.get(i);
-            String title = trackScheduler.getTitle(track.getIdentifier()).replace("ytsearch:", "").trim();
-            queueMessage.append("📍 ").append(i + 1).append(". ").append(title != null ? title : "Unknown Title").append("\n");
+            String title = trackScheduler.getTitle(track.getIdentifier());
+            title = title != null ? title.replace("ytsearch:", "").trim() : "Unknown Title";
+            queueMessage.append("📍 ").append(i + 1).append(". ").append(title).append("\n");
         }
 
         if (bot != null) {

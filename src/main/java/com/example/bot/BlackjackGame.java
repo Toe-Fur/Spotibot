@@ -834,7 +834,7 @@ public class BlackjackGame {
                     outcome = "LOSS";
                 }
 
-                logLines.add("• **" + who + "**: " + h.cards + " (**" + t + "**), Bet **$" + h.bet + "** → **" + outcome + "**");
+                logLines.add("• **" + who + "**: " + formatHand(h.cards) + " (**" + t + "**), Bet **$" + h.bet + "** → **" + outcome + "**");
             }
         }
 
@@ -867,7 +867,7 @@ public class BlackjackGame {
                 int t = handValue(h.cards);
 
                 String label = u.getAsMention() + (hs.size() > 1 ? " (H" + (i + 1) + ")" : "");
-                String line = "• " + label + ": " + h.cards + " (**" + t + "**)" + rnStr + "\n";
+                String line = "• " + label + ": " + formatHand(h.cards) + " (**" + t + "**)" + rnStr + "\n";
 
                 if (t > 21) losers.append(line);
                 else if (dealerTotal > 21 || t > dealerTotal) winners.append(line);
@@ -884,7 +884,7 @@ public class BlackjackGame {
         eb.addField("🔵 PUSH",    pushes.length() == 0 ? "> _None_" : ">>> " + pushes, false);
         eb.addField("🔴 LOSERS",  losers.length() == 0 ? "> _None_" : ">>> " + losers, false);
 
-        eb.addField("🧑‍⚖️ DEALER", ">>> **" + dealerHand + "**  (**" + dealerTotal + "**)", false);
+        eb.addField("🧑‍⚖️ DEALER", ">>> **" + formatHand(dealerHand) + "**  (**" + dealerTotal + "**)", false);
         eb.setFooter("Next round starts shortly…");
 
         upsertTableMessage(channel, eb.build(), buildButtons(channel.getIdLong()), true);
@@ -958,8 +958,8 @@ public class BlackjackGame {
         Long mid = ledgerMessageByChannel.get(cid);
         if (mid == null) return;
 
-        channel.retrieveMessageById(mid).queue(
-                m -> m.editMessageEmbeds(embed).queue(),
+        channel.editMessageEmbedsById(mid, embed).queue(
+                null,
                 f -> { ledgerMessageByChannel.remove(cid); creatingLedgerMessage.remove(cid); refreshTable(channel, true); }
         );
     }
@@ -969,8 +969,8 @@ public class BlackjackGame {
         Long mid = systemMessageByChannel.get(cid);
         if (mid == null) return;
 
-        channel.retrieveMessageById(mid).queue(
-                m -> m.editMessageEmbeds(embed).queue(),
+        channel.editMessageEmbedsById(mid, embed).queue(
+                null,
                 f -> { systemMessageByChannel.remove(cid); creatingSystemMessage.remove(cid); refreshTable(channel, true); }
         );
     }
@@ -985,8 +985,8 @@ public class BlackjackGame {
         Long mid = tableMessageByChannel.get(cid);
         if (mid == null) return;
 
-        channel.retrieveMessageById(mid).queue(
-                m -> m.editMessageEmbeds(embed).setComponents(rows).queue(),
+        channel.editMessageEmbedsById(mid, embed).setComponents(rows).queue(
+                null,
                 f -> { tableMessageByChannel.remove(cid); creatingTableMessage.remove(cid); refreshTable(channel, true); }
         );
     }
@@ -1039,9 +1039,9 @@ public class BlackjackGame {
         } else if (dealerHand == null || dealerHand.isEmpty()) {
             dealerLine = "—";
         } else if (roundActive && dealerHidden) {
-            dealerLine = "**" + dealerHand.get(0) + "**, [hidden]";
+            dealerLine = "**" + dealerHand.get(0) + "**  🂠";
         } else {
-            dealerLine = dealerHand + "  **(" + handValue(dealerHand) + ")**";
+            dealerLine = formatHandWithValue(dealerHand);
         }
         eb.addField("Dealer", dealerLine, false);
 
@@ -1066,10 +1066,9 @@ public class BlackjackGame {
                     boolean activeHand = isTurn && (i == currentHandIndex);
 
                     p.append("• Hand ").append(i + 1).append(activeHand ? " **(active)**" : "")
-                            .append(": ").append(h.cards)
-                            .append("  **(").append(total).append(")**")
+                            .append(": ").append(formatHandWithValue(h.cards))
                             .append("  Bet: **$").append(h.bet).append("**")
-                            .append(total > 21 ? " 💥" : "")
+                            .append(total > 21 ? "  💥 BUST" : "")
                             .append("\n");
                 }
             } else {
@@ -1276,6 +1275,15 @@ public class BlackjackGame {
         long cid = channel.getIdLong();
         ScheduledFuture<?> old = idleCloseTask.remove(cid);
         if (old != null) old.cancel(false);
+    }
+
+    // -------- Card display helpers --------
+    private static String formatHand(List<String> cards) {
+        return String.join("  ", cards);
+    }
+
+    private static String formatHandWithValue(List<String> cards) {
+        return formatHand(cards) + "  **(" + handValue(cards) + ")**";
     }
 
     // -------- Card helpers --------

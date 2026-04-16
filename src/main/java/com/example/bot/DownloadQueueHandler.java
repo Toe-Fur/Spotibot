@@ -35,7 +35,8 @@ public class DownloadQueueHandler {
                 if (downloadedFile.exists()) {
                     delegatedToQueueSong = true; // queueSong's load callbacks will decrement
                     trackScheduler.queueSong(downloadedFile, input);
-                    messageChannel.sendMessage(String.format("📍 **Queued:** `%s`", input)).queue(msg -> msg.suppressEmbeds(true).queue());
+                    String displayTitle = input.replace("ytsearch:", "").trim();
+                    messageChannel.sendMessage(String.format("📍 **Queued:** `%s`", displayTitle)).queue(msg -> msg.suppressEmbeds(true).queue());
                 } else {
                     messageChannel.sendMessage("Failed to download or queue the track: " + input).queue(msg -> msg.suppressEmbeds(true).queue());
                 }
