@@ -2,29 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.0] - 2025-12-17
+---
+
+## [Unreleased] — 1.1
+
 ### Added
-- Upgrade project to **Java 21 (LTS)**
-  - Set `maven.compiler.source` and `maven.compiler.target` to `21` and updated `maven-compiler-plugin` to `3.11.0`.
-- CI and Docker updates to support Java 21
-  - Updated `Dockerfile` and `Dockerfile.bak` to use Temurin/Java 21 images.
-  - Updated `.github/workflows/maven-build.yml` to set up JDK `21` for the Build and Deploy workflow.
-- Verified builds
-  - Local `mvn verify` passed with Java 21.
-  - GitHub Actions jobs (Docker Image CI and Build and Deploy) passed on Java 21.
+- `!pause` / `!resume` — pause and resume playback
+- `!volume` / `!volume <n>` — show or set volume (0–100)
+- `!np` / `!nowplaying` — re-display the Now Playing embed for the current track
+- YouTube playlist support — `!play <playlist URL>` enumerates videos via `yt-dlp --flat-playlist` and queues them individually
+- "Searching…" feedback — `!play` immediately responds with a searching message that edits to "📍 Queued" or an error when the download completes
+- Per-guild blackjack isolation — each server now has its own `TableState`, game thread, and scheduler; games in one guild no longer affect another
 
 ### Changed
-- Project version set to `1.0` (tag `v1.0`) and published release.
-- Bumped `pom.xml` to `1.1-SNAPSHOT` for continued development after release.
-
-### Misc
-- PR: #8 — `chore: upgrade to Java 21` (merged via squash)
-- Notable commits included in this release:
-  - `0669f3d` chore: upgrade to Java 21
-  - `78e4607` chore(release): 1.0
-  - `50ae958` chore: bump version to 1.1-SNAPSHOT
+- Now Playing embed footer updated to include `!pause`
+- Blackjack: all mutable game state moved from static class fields into a `ConcurrentHashMap<Long, TableState>` registry keyed by guild ID
 
 ---
 
-## [Unreleased]
-- Prepare changes for next development cycle (1.1)
+## [1.0] — 2025-12-17
+
+### Added
+- Upgrade project to **Java 21 (LTS)**
+  - `maven.compiler.source` / `target` set to `21`, `maven-compiler-plugin` bumped to `3.11.0`
+- CI and Docker updates for Java 21
+  - `Dockerfile` and `Dockerfile.bak` updated to Temurin/Java 21 images
+  - `.github/workflows/maven-build.yml` updated to set up JDK 21
+- Verified builds — local `mvn verify` and GitHub Actions (Docker Image CI + Build and Deploy) all passing on Java 21
+
+### Changed
+- Project version set to `1.0`, tag `v1.0`, published release
+- `pom.xml` bumped to `1.1-SNAPSHOT` for continued development
+
+### Misc
+- PR #8 — `chore: upgrade to Java 21` (merged via squash)
+- Notable commits: `0669f3d`, `78e4607`, `50ae958`
