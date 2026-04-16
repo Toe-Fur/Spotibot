@@ -73,7 +73,7 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
                 .setColor(new Color(0x1db954))
                 .setTitle("🎵 Now Playing")
                 .setDescription("**" + title + "**")
-                .setFooter("!skip  •  !stop  •  !queue");
+                .setFooter("!pause  •  !skip  •  !stop  •  !queue");
         notifyChannel.sendMessageEmbeds(eb.build()).queue(null, e -> {});
     }
 

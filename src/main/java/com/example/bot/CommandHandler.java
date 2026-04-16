@@ -61,10 +61,30 @@ public class CommandHandler {
                 } else if (input.contains("spotify.com/playlist")) {
                     String playlistId = SpotifyUtils.extractSpotifyId(input);
                     List<String> trackTitles = SpotifyUtils.getPlaylistTracks(playlistId);
-
                     for (String trackTitle : trackTitles) {
                         DownloadQueueHandler.queueAndPlay(trackTitle, trackScheduler, messageChannel, guild, serverFolder, downloadQueue);
                     }
+                } else if (input.contains("youtube.com/playlist")) {
+                    final GuildMessageChannel ch = messageChannel;
+                    messageChannel.sendMessage("📋 Fetching YouTube playlist...").queue();
+                    trackScheduler.incrementPendingDownloads();
+                    downloadQueue.offer(() -> {
+                        try {
+                            List<String> videoUrls = DownloadQueueHandler.getYouTubePlaylistUrls(input);
+                            if (videoUrls.isEmpty()) {
+                                ch.sendMessage("❌ Could not fetch playlist or it's empty.").queue();
+                            } else {
+                                ch.sendMessage("📋 Found **" + videoUrls.size() + "** tracks. Queuing...").queue();
+                                for (String url : videoUrls) {
+                                    DownloadQueueHandler.queueAndPlay(url, trackScheduler, ch, guild, serverFolder, downloadQueue);
+                                }
+                            }
+                        } catch (Exception e) {
+                            ch.sendMessage("❌ Error fetching playlist: " + e.getMessage()).queue();
+                        } finally {
+                            trackScheduler.decrementPendingDownloads();
+                        }
+                    });
                 } else if (input.contains("youtube.com") || input.contains("youtu.be")) {
                     DownloadQueueHandler.queueAndPlay(input, trackScheduler, messageChannel, guild, serverFolder, downloadQueue);
                 } else {
@@ -73,6 +93,18 @@ public class CommandHandler {
             } catch (Exception e) {
                 messageChannel.sendMessage("An error occurred: " + e.getMessage()).queue();
             }
+
+        } else if (message.equalsIgnoreCase("!pause")) {
+            handlePauseCommand(messageChannel, trackScheduler);
+
+        } else if (message.equalsIgnoreCase("!resume")) {
+            handleResumeCommand(messageChannel, trackScheduler);
+
+        } else if (message.toLowerCase().startsWith("!volume")) {
+            handleVolumeCommand(message, messageChannel, trackScheduler);
+
+        } else if (message.equalsIgnoreCase("!np") || message.equalsIgnoreCase("!nowplaying")) {
+            handleNowPlayingCommand(messageChannel, trackScheduler);
 
         } else if (message.equalsIgnoreCase("!skip")) {
             handleSkipCommand(guild, messageChannel, trackScheduler);
@@ -141,7 +173,65 @@ public class CommandHandler {
         }
     }
 
-private static void handleSkipCommand(Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler) {
+private static void handlePauseCommand(GuildMessageChannel messageChannel, TrackScheduler trackScheduler) {
+        if (trackScheduler.getPlayer().getPlayingTrack() == null) {
+            messageChannel.sendMessage("Nothing is playing right now.").queue();
+            return;
+        }
+        if (trackScheduler.getPlayer().isPaused()) {
+            messageChannel.sendMessage("Already paused. Use `!resume` to continue.").queue();
+            return;
+        }
+        trackScheduler.getPlayer().setPaused(true);
+        messageChannel.sendMessage("⏸ Paused.").queue();
+    }
+
+    private static void handleResumeCommand(GuildMessageChannel messageChannel, TrackScheduler trackScheduler) {
+        if (!trackScheduler.getPlayer().isPaused()) {
+            messageChannel.sendMessage("Not paused.").queue();
+            return;
+        }
+        trackScheduler.getPlayer().setPaused(false);
+        messageChannel.sendMessage("▶ Resumed.").queue();
+    }
+
+    private static void handleVolumeCommand(String message, GuildMessageChannel messageChannel, TrackScheduler trackScheduler) {
+        String[] parts = message.trim().split("\\s+");
+        if (parts.length < 2) {
+            int current = trackScheduler.getPlayer().getVolume();
+            messageChannel.sendMessage("🔊 Current volume: **" + current + "**. Usage: `!volume <0-100>`").queue();
+            return;
+        }
+        try {
+            int vol = Integer.parseInt(parts[1]);
+            if (vol < 0 || vol > 100) {
+                messageChannel.sendMessage("Volume must be between 0 and 100.").queue();
+                return;
+            }
+            trackScheduler.getPlayer().setVolume(vol);
+            messageChannel.sendMessage("🔊 Volume set to **" + vol + "**.").queue();
+        } catch (NumberFormatException e) {
+            messageChannel.sendMessage("Invalid volume. Usage: `!volume <0-100>`").queue();
+        }
+    }
+
+    private static void handleNowPlayingCommand(GuildMessageChannel messageChannel, TrackScheduler trackScheduler) {
+        AudioTrack current = trackScheduler.getCurrentTrack();
+        if (current == null || trackScheduler.getPlayer().getPlayingTrack() == null) {
+            messageChannel.sendMessage("Nothing is playing right now.").queue();
+            return;
+        }
+        String title = trackScheduler.getTitle(current.getIdentifier());
+        title = title != null ? title.replace("ytsearch:", "").trim() : current.getInfo().title;
+        EmbedBuilder eb = new EmbedBuilder()
+                .setColor(new Color(0x1db954))
+                .setTitle("🎵 Now Playing")
+                .setDescription("**" + title + "**")
+                .setFooter("!pause  •  !skip  •  !stop  •  !queue");
+        messageChannel.sendMessageEmbeds(eb.build()).queue();
+    }
+
+    private static void handleSkipCommand(Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler) {
         if (trackScheduler.getPlayer().getPlayingTrack() != null) {
             trackScheduler.nextTrack();
             messageChannel.sendMessage(ConfigUtils.skipEmoji + " Skipped.").queue(msg -> msg.suppressEmbeds(true).queue());
@@ -249,13 +339,17 @@ private static void handleSkipCommand(Guild guild, GuildMessageChannel messageCh
 
     private static String getHelpMessage() {
         return "**Spotibot Commands**:\n" +
-               "`!play <URL or search term>` - Plays a YouTube video.\n" +
-               "`!skip` - Skips the current track.\n" +
-               "`!stop` - Stops playback and resets the bot.\n" +
-               "`!queue` - Shows the current queue.\n" +
-               "`!help` - Shows this list of commands.\n" +
+               "`!play <URL or search term>` - Play a YouTube video, playlist, or Spotify track/playlist.\n" +
+               "`!np` / `!nowplaying` - Show what's currently playing.\n" +
+               "`!pause` - Pause playback.\n" +
+               "`!resume` - Resume playback.\n" +
+               "`!volume <0-100>` - Set or view volume.\n" +
+               "`!skip` - Skip the current track.\n" +
+               "`!stop` - Stop playback and reset the bot.\n" +
+               "`!queue` - Show the current queue.\n" +
+               "`!help` - Show this list of commands.\n" +
                "`!blackjack` - Join a game of blackjack.\n" +
-               "`!blackjack help` - Shows blackjack commands.\n" +
+               "`!blackjack help` - Show blackjack commands.\n" +
                "\nNote: Place your `cookies.txt` file in the `config` folder for YouTube authentication.";
     }
 

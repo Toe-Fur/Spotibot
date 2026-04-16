@@ -5,6 +5,8 @@ import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import java.util.concurrent.BlockingQueue;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.Logger;
 import java.util.concurrent.TimeUnit;
 import java.io.BufferedReader;
@@ -19,36 +21,70 @@ public class DownloadQueueHandler {
             return;
         }
 
-        trackScheduler.incrementPendingDownloads();
-        downloadQueue.offer(() -> {
-            boolean delegatedToQueueSong = false;
-            try {
-                String query = input.contains("youtube.com") || input.contains("youtu.be") ? input : "ytsearch:" + input;
-                String sanitizedSongName = sanitizeFileName(input);
-                String outputFilePath = serverFolder + sanitizedSongName + ".webm";
+        String displayTitle = input.replace("ytsearch:", "").trim();
 
-                File downloadedFile = new File(outputFilePath);
-                if (!downloadedFile.exists()) {
-                    downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel, guild);
-                }
+        // Send "Searching…" immediately so the user gets instant feedback, then edit it to the final status.
+        messageChannel.sendMessage("🔍 Searching for `" + displayTitle + "`...").queue(searchMsg -> {
+            trackScheduler.incrementPendingDownloads();
+            downloadQueue.offer(() -> {
+                boolean delegatedToQueueSong = false;
+                try {
+                    String query = input.contains("youtube.com") || input.contains("youtu.be") ? input : "ytsearch:" + input;
+                    String sanitizedSongName = sanitizeFileName(input);
+                    String outputFilePath = serverFolder + sanitizedSongName + ".webm";
 
-                if (downloadedFile.exists()) {
-                    delegatedToQueueSong = true; // queueSong's load callbacks will decrement
-                    trackScheduler.queueSong(downloadedFile, input);
-                    String displayTitle = input.replace("ytsearch:", "").trim();
-                    messageChannel.sendMessage(String.format("📍 **Queued:** `%s`", displayTitle)).queue(msg -> msg.suppressEmbeds(true).queue());
-                } else {
-                    messageChannel.sendMessage("Failed to download or queue the track: " + input).queue(msg -> msg.suppressEmbeds(true).queue());
+                    File downloadedFile = new File(outputFilePath);
+                    if (!downloadedFile.exists()) {
+                        downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel, guild);
+                    }
+
+                    if (downloadedFile.exists()) {
+                        delegatedToQueueSong = true; // queueSong's load callbacks will decrement
+                        trackScheduler.queueSong(downloadedFile, input);
+                        searchMsg.editMessage(String.format("📍 **Queued:** `%s`", displayTitle))
+                                .queue(m -> m.suppressEmbeds(true).queue(), e -> {});
+                    } else {
+                        searchMsg.editMessage("❌ Failed to download: `" + displayTitle + "`")
+                                .queue(null, e -> {});
+                    }
+                } catch (IOException | InterruptedException e) {
+                    searchMsg.editMessage("❌ Error downloading `" + displayTitle + "`: " + e.getMessage())
+                            .queue(null, e2 -> {});
+                    logger.severe("Error processing track: " + input + " - " + e.getMessage());
+                } finally {
+                    if (!delegatedToQueueSong) {
+                        trackScheduler.decrementPendingDownloads();
+                    }
                 }
-            } catch (IOException | InterruptedException e) {
-                messageChannel.sendMessage("Error downloading or queuing track: " + e.getMessage()).queue(msg -> msg.suppressEmbeds(true).queue());
-                logger.severe("Error processing track: " + input + " - " + e.getMessage());
-            } finally {
-                if (!delegatedToQueueSong) {
-                    trackScheduler.decrementPendingDownloads();
-                }
-            }
+            });
         });
+    }
+
+    /**
+     * Uses yt-dlp --flat-playlist to fetch all video URLs from a YouTube playlist without downloading audio.
+     * Fast operation (~1-5s depending on playlist size).
+     */
+    public static List<String> getYouTubePlaylistUrls(String playlistUrl) throws IOException, InterruptedException {
+        List<String> urls = new ArrayList<>();
+        ProcessBuilder pb = new ProcessBuilder(
+                "yt-dlp",
+                "--flat-playlist",
+                "--print", "webpage_url",
+                "--no-warnings",
+                playlistUrl
+        );
+        pb.redirectErrorStream(false);
+        Process process = pb.start();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+                if (!line.isBlank()) urls.add(line);
+            }
+        }
+        boolean done = process.waitFor(60, TimeUnit.SECONDS);
+        if (!done) process.destroyForcibly();
+        return urls;
     }
 
     public static void clearDownloadsFolder(String serverFolder) {
