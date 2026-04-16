@@ -3,14 +3,20 @@ package com.example.bot;
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayerManager;
 import com.sedmelluq.discord.lavaplayer.player.DefaultAudioPlayerManager;
 import com.sedmelluq.discord.lavaplayer.source.AudioSourceManagers;
+import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.audio.AudioModuleConfig;
+import net.dv8tion.jda.api.components.actionrow.ActionRow;
+import net.dv8tion.jda.api.components.buttons.Button;
+import net.dv8tion.jda.api.entities.Activity;
+import net.dv8tion.jda.api.entities.Guild;
+import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
-import net.dv8tion.jda.api.events.message.react.MessageReactionAddEvent;
 import net.dv8tion.jda.api.events.guild.voice.GuildVoiceUpdateEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.GatewayIntent;
-import net.dv8tion.jda.api.entities.Activity;
+import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
+import java.awt.Color;
 import moe.kyokobot.libdave.NativeDaveFactory;
 import moe.kyokobot.libdave.jda.LDJDADaveSessionFactory;
 import org.slf4j.Logger;
@@ -82,8 +88,33 @@ public class Spotibot extends ListenerAdapter {
     }
 
     @Override
-    public void onMessageReactionAdd(MessageReactionAddEvent event) {
-        CommandHandler.handleReaction(event, trackSchedulerRegistry, queuePageMap);
+    public void onButtonInteraction(ButtonInteractionEvent event) {
+        String id = event.getComponentId();
+        if (!id.equals(CommandHandler.BTN_QUEUE_PREV) && !id.equals(CommandHandler.BTN_QUEUE_NEXT)) return;
+
+        Guild guild = event.getGuild();
+        if (guild == null) return;
+
+        TrackScheduler scheduler = trackSchedulerRegistry.get(guild);
+        if (scheduler == null) {
+            event.reply("No active player.").setEphemeral(true).queue();
+            return;
+        }
+
+        int page = queuePageMap.getOrDefault(guild.getIdLong(), 0);
+        if (id.equals(CommandHandler.BTN_QUEUE_NEXT)) page++;
+        else page = Math.max(0, page - 1);
+        queuePageMap.put(guild.getIdLong(), page);
+
+        java.util.concurrent.LinkedBlockingQueue<AudioTrack> playbackQueue = scheduler.getQueue();
+        EmbedBuilder eb = CommandHandler.buildQueueEmbed(scheduler, playbackQueue, page);
+        java.util.List<ActionRow> components = CommandHandler.buildQueueComponents(playbackQueue.size(), page);
+
+        if (components.isEmpty()) {
+            event.editMessageEmbeds(eb.build()).setComponents().queue();
+        } else {
+            event.editMessageEmbeds(eb.build()).setComponents(components).queue();
+        }
     }
 
     @Override

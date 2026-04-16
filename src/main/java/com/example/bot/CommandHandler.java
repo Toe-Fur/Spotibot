@@ -1,22 +1,24 @@
 package com.example.bot;
 
+import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
-import net.dv8tion.jda.api.entities.emoji.Emoji;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
-import net.dv8tion.jda.api.events.message.react.MessageReactionAddEvent;
+import net.dv8tion.jda.api.components.actionrow.ActionRow;
+import net.dv8tion.jda.api.components.buttons.Button;
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayerManager;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
+import java.awt.Color;
 import java.util.concurrent.BlockingQueue;
 import java.util.Map;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +27,9 @@ import net.dv8tion.jda.api.entities.Member;
 
 public class CommandHandler {
     private static final Logger logger = LoggerFactory.getLogger(CommandHandler.class);
+
+    public static final String BTN_QUEUE_PREV = "queue:prev";
+    public static final String BTN_QUEUE_NEXT = "queue:next";
 
     public static void handleMessage(MessageReceivedEvent event, Spotibot bot, AudioPlayerManager playerManager, TrackSchedulerRegistry trackSchedulerRegistry, BlockingQueue<Runnable> downloadQueue) {
         String message = event.getMessage().getContentRaw();
@@ -136,34 +141,7 @@ public class CommandHandler {
         }
     }
 
-    public static void handleReaction(MessageReactionAddEvent event, TrackSchedulerRegistry trackSchedulerRegistry, Map<Long, Integer> queuePageMap) {
-        if (event.getUser().isBot()) return;
-
-        Guild guild = event.getGuild();
-        TrackScheduler trackScheduler = trackSchedulerRegistry.get(guild);
-        if (trackScheduler == null) return;
-
-        event.retrieveMessage().queue(message -> {
-            if (!message.getAuthor().getId().equals(event.getJDA().getSelfUser().getId())) {
-                return;
-            }
-
-            String emoji = event.getEmoji().getName();
-            int currentPage = queuePageMap.getOrDefault(guild.getIdLong(), 0);
-
-            if (emoji.equals("⬅️")) {
-                if (currentPage > 0) {
-                    showQueue(event, trackScheduler, currentPage - 1, null);
-                }
-            } else if (emoji.equals("➡️")) {
-                showQueue(event, trackScheduler, currentPage + 1, null);
-            }
-
-            event.getReaction().removeReaction(event.getUser()).queue();
-        });
-    }
-
-    private static void handleSkipCommand(Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler) {
+private static void handleSkipCommand(Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler) {
         if (trackScheduler.getPlayer().getPlayingTrack() != null) {
             trackScheduler.nextTrack();
             messageChannel.sendMessage(ConfigUtils.skipEmoji + " Skipped.").queue(msg -> msg.suppressEmbeds(true).queue());
@@ -212,84 +190,61 @@ public class CommandHandler {
         messageChannel.sendMessage(ConfigUtils.stopEmoji + " Stopped playback and reset the bot state. You can now add new songs.").queue(msg -> msg.suppressEmbeds(true).queue());
     }
 
-    private static void showQueue(MessageReceivedEvent event, TrackScheduler trackScheduler, int page, Spotibot bot) {
+    static void showQueue(MessageReceivedEvent event, TrackScheduler trackScheduler, int page, Spotibot bot) {
         LinkedBlockingQueue<AudioTrack> playbackQueue = trackScheduler.getQueue();
-        StringBuilder queueMessage = new StringBuilder("🎶 **Now Playing and Queue** 🎶\n");
 
-        AudioTrack currentTrack = trackScheduler.getCurrentTrack();
-        if (currentTrack != null) {
-            String title = trackScheduler.getTitle(currentTrack.getIdentifier());
-            title = title != null ? title.replace("ytsearch:", "").trim() : "Unknown Title";
-            queueMessage.append("🎵 Now Playing: ").append(title).append("\n");
+        if (bot != null) bot.getQueuePageMap().put(event.getGuild().getIdLong(), page);
+
+        EmbedBuilder eb = buildQueueEmbed(trackScheduler, playbackQueue, page);
+        List<ActionRow> components = buildQueueComponents(playbackQueue.size(), page);
+
+        if (components.isEmpty()) {
+            event.getChannel().sendMessageEmbeds(eb.build()).queue();
+        } else {
+            event.getChannel().sendMessageEmbeds(eb.build()).setComponents(components).queue();
         }
-
-        int startIndex = page * ConfigUtils.QUEUE_PAGE_SIZE;
-        int endIndex = Math.min(startIndex + ConfigUtils.QUEUE_PAGE_SIZE, playbackQueue.size());
-
-        List<AudioTrack> trackList = new ArrayList<>(playbackQueue);
-        for (int i = startIndex; i < endIndex; i++) {
-            AudioTrack track = trackList.get(i);
-            String title = trackScheduler.getTitle(track.getIdentifier());
-            title = title != null ? title.replace("ytsearch:", "").trim() : "Unknown Title";
-            queueMessage.append("📍 ").append(i + 1).append(". ").append(title).append("\n");
-        }
-
-        if (bot != null) {
-            bot.getQueuePageMap().put(event.getGuild().getIdLong(), page);
-        }
-
-        event.getChannel().sendMessage(queueMessage.toString()).queue(message -> {
-            if (playbackQueue.size() > ConfigUtils.QUEUE_PAGE_SIZE) {
-                if (page > 0) {
-                    message.addReaction(Emoji.fromUnicode("⬅️")).queue();
-                }
-                if (endIndex < playbackQueue.size()) {
-                    message.addReaction(Emoji.fromUnicode("➡️")).queue();
-                }
-            }
-        });
     }
 
-    private static void showQueue(MessageReactionAddEvent event, TrackScheduler trackScheduler, int page, Spotibot bot) {
-        LinkedBlockingQueue<AudioTrack> playbackQueue = trackScheduler.getQueue();
-        StringBuilder queueMessage = new StringBuilder("🎶 **Now Playing and Queue** 🎶\n");
+    public static EmbedBuilder buildQueueEmbed(TrackScheduler trackScheduler,
+                                                LinkedBlockingQueue<AudioTrack> playbackQueue,
+                                                int page) {
+        EmbedBuilder eb = new EmbedBuilder()
+                .setTitle("🎶 Queue")
+                .setColor(new Color(0x1db954));
 
         AudioTrack currentTrack = trackScheduler.getCurrentTrack();
         if (currentTrack != null) {
             String title = trackScheduler.getTitle(currentTrack.getIdentifier());
-            title = title != null ? title.replace("ytsearch:", "").trim() : "Unknown Title";
-            queueMessage.append("🎵 Now Playing: ").append(title).append("\n");
+            title = title != null ? title.replace("ytsearch:", "").trim() : "Unknown";
+            eb.appendDescription("🎵 **Now Playing:** " + title + "\n\n");
         }
 
+        int total = playbackQueue.size();
         int startIndex = page * ConfigUtils.QUEUE_PAGE_SIZE;
-        int endIndex = Math.min(startIndex + ConfigUtils.QUEUE_PAGE_SIZE, playbackQueue.size());
+        int endIndex = Math.min(startIndex + ConfigUtils.QUEUE_PAGE_SIZE, total);
 
         List<AudioTrack> trackList = new ArrayList<>(playbackQueue);
-        for (int i = startIndex; i < endIndex; i++) {
-            AudioTrack track = trackList.get(i);
-            String title = trackScheduler.getTitle(track.getIdentifier());
-            title = title != null ? title.replace("ytsearch:", "").trim() : "Unknown Title";
-            queueMessage.append("📍 ").append(i + 1).append(". ").append(title).append("\n");
-        }
-
-        if (bot != null) {
-            bot.getQueuePageMap().put(event.getGuild().getIdLong(), page);
-        }
-
-        event.getChannel().retrieveMessageById(event.getMessageId()).queue(message -> {
-            if (message.getAuthor().getId().equals(event.getJDA().getSelfUser().getId())) {
-                message.editMessage(queueMessage.toString()).queue();
-                message.clearReactions().queue();
-                if (playbackQueue.size() > ConfigUtils.QUEUE_PAGE_SIZE) {
-                    if (page > 0) {
-                        message.addReaction(Emoji.fromUnicode("⬅️")).queue();
-                    }
-                    if (endIndex < playbackQueue.size()) {
-                        message.addReaction(Emoji.fromUnicode("➡️")).queue();
-                    }
-                }
+        if (trackList.isEmpty()) {
+            eb.appendDescription("_Queue is empty._");
+        } else {
+            for (int i = startIndex; i < endIndex; i++) {
+                String title = trackScheduler.getTitle(trackList.get(i).getIdentifier());
+                title = title != null ? title.replace("ytsearch:", "").trim() : "Unknown";
+                eb.appendDescription("📍 **" + (i + 1) + ".** " + title + "\n");
             }
-        });
+        }
+
+        int totalPages = total == 0 ? 1 : (int) Math.ceil((double) total / ConfigUtils.QUEUE_PAGE_SIZE);
+        eb.setFooter("Page " + (page + 1) + "/" + totalPages + "  •  " + total + " track(s) queued");
+        return eb;
+    }
+
+    public static List<ActionRow> buildQueueComponents(int totalTracks, int page) {
+        if (totalTracks <= ConfigUtils.QUEUE_PAGE_SIZE) return List.of();
+        int endIndex = Math.min((page + 1) * ConfigUtils.QUEUE_PAGE_SIZE, totalTracks);
+        Button prev = Button.secondary(BTN_QUEUE_PREV, "◀ Prev").withDisabled(page == 0);
+        Button next = Button.secondary(BTN_QUEUE_NEXT, "Next ▶").withDisabled(endIndex >= totalTracks);
+        return List.of(ActionRow.of(prev, next));
     }
 
     private static String getHelpMessage() {

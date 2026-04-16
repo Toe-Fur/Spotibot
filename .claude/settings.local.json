@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:repo.maven.apache.org)",
+      "WebSearch",
+      "WebFetch(domain:docs.jda.wiki)",
+      "WebFetch(domain:www.mintlify.com)",
+      "WebFetch(domain:javadoc.io)",
+      "WebFetch(domain:jda.wiki)"
+    ]
+  }
+}

@@ -79,13 +79,13 @@ public class ConfigUtils {
             ObjectMapper mapper = new ObjectMapper();
             JsonNode config = mapper.readTree(configFile);
 
-            BOT_TOKEN = config.get("bot_token").asText();
-            STATUS = config.get("status").asText();
-            defaultVolume = config.get("default_volume").asInt(60);
-            skipEmoji = config.get("emojis").get("skip").asText();
-            stopEmoji = config.get("emojis").get("stop").asText();
+            BOT_TOKEN = config.path("bot_token").asText(null);
+            STATUS = config.path("status").asText("Spotibot");
+            defaultVolume = config.path("default_volume").asInt(60);
+            skipEmoji = config.path("emojis").path("skip").asText("⏩");
+            stopEmoji = config.path("emojis").path("stop").asText("⏹️");
 
-            if (BOT_TOKEN == null || BOT_TOKEN.isEmpty() || BOT_TOKEN.equals("YOUR_BOT_TOKEN_HERE")) {
+            if (BOT_TOKEN == null || BOT_TOKEN.isBlank() || BOT_TOKEN.equals("YOUR_BOT_TOKEN_HERE")) {
                 logger.error("Bot token is missing in the config file.");
                 System.exit(1);
             }

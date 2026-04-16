@@ -12,108 +12,103 @@ public class SpotifyUtils {
     private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(SpotifyUtils.class);
     private static final String CONFIG_PATH = "config/spotifyconfig.json";
     private static final MediaType FORM = MediaType.get("application/x-www-form-urlencoded");
+    private static final OkHttpClient HTTP = new OkHttpClient();
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static String CLIENT_ID;
     private static String CLIENT_SECRET;
+    private static boolean configLoaded = false;
+    private static boolean configAvailable = false;
+
     private static String accessToken;
+    private static long tokenExpiresAt = 0; // epoch ms
 
-    static {
+    private static synchronized void ensureConfig() {
+        if (configLoaded) return;
+        configLoaded = true;
         try {
-            ObjectMapper mapper = new ObjectMapper();
-            JsonNode config = mapper.readTree(new File(CONFIG_PATH));
-            CLIENT_ID = config.get("client_id").asText();
-            CLIENT_SECRET = config.get("client_secret").asText();
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to load Spotify configuration", e);
+            JsonNode config = MAPPER.readTree(new File(CONFIG_PATH));
+            CLIENT_ID = config.path("client_id").asText(null);
+            CLIENT_SECRET = config.path("client_secret").asText(null);
+            configAvailable = CLIENT_ID != null && !CLIENT_ID.isBlank()
+                           && CLIENT_SECRET != null && !CLIENT_SECRET.isBlank();
+            if (configAvailable) logger.info("Spotify config loaded.");
+            else logger.warn("spotifyconfig.json missing client_id/client_secret — Spotify disabled.");
+        } catch (Exception e) {
+            logger.warn("spotifyconfig.json not found or invalid — Spotify disabled. ({})", e.getMessage());
         }
     }
 
-    public static void authenticate() throws IOException {
-        OkHttpClient client = new OkHttpClient();
+    public static synchronized void authenticate() throws IOException {
+        ensureConfig();
+        if (!configAvailable) throw new IOException("Spotify not configured.");
 
-        String credentials = CLIENT_ID + ":" + CLIENT_SECRET;
-        String encodedCredentials = Base64.getEncoder().encodeToString(credentials.getBytes());
+        String encoded = Base64.getEncoder()
+                .encodeToString((CLIENT_ID + ":" + CLIENT_SECRET).getBytes());
 
-        String tokenUrl = "https://accounts.spotify.com/api/token";
         RequestBody body = RequestBody.create("grant_type=client_credentials", FORM);
-
         Request request = new Request.Builder()
-            .url(tokenUrl)
-            .post(body)
-            .addHeader("Authorization", "Basic " + encodedCredentials)
-            .build();
+                .url("https://accounts.spotify.com/api/token")
+                .post(body)
+                .addHeader("Authorization", "Basic " + encoded)
+                .build();
 
-        try (Response response = client.newCall(request).execute()) {
-            if (!response.isSuccessful()) {
-                logger.error("Failed to authenticate: " + response.body().string());
-                throw new IOException("Unexpected response code: " + response.code());
-            }
+        try (Response response = HTTP.newCall(request).execute()) {
+            if (!response.isSuccessful())
+                throw new IOException("Spotify auth failed: HTTP " + response.code());
 
-            String responseBody = response.body().string();
-            JsonNode json = new ObjectMapper().readTree(responseBody);
+            JsonNode json = MAPPER.readTree(response.body().string());
             accessToken = json.get("access_token").asText();
-            logger.info("Successfully authenticated. Access Token: " + accessToken);
+            int expiresIn = json.path("expires_in").asInt(3600);
+            // Renew 60 s before actual expiry to avoid mid-request failures
+            tokenExpiresAt = System.currentTimeMillis() + (expiresIn - 60) * 1000L;
+            logger.info("Spotify authenticated. Token valid for {} s.", expiresIn);
         }
     }
 
-    private static void authenticateIfNeeded() throws IOException {
-        if (accessToken == null || isTokenExpired()) {
+    private static synchronized void authenticateIfNeeded() throws IOException {
+        if (accessToken == null || System.currentTimeMillis() >= tokenExpiresAt) {
             authenticate();
         }
     }
 
-    private static boolean isTokenExpired() {
-        // Implement token expiration logic if needed
-        return false;
-    }
-
     public static List<String> getPlaylistTracks(String playlistId) throws IOException {
+        ensureConfig();
+        if (!configAvailable) throw new IOException("Spotify not configured.");
         authenticateIfNeeded();
 
         List<String> trackTitles = new ArrayList<>();
-        String url = "https://api.spotify.com/v1/playlists/" + playlistId + "/tracks?limit=20";
-        logger.info("Constructed API URL: " + url);
-
-        OkHttpClient client = new OkHttpClient();
+        String url = "https://api.spotify.com/v1/playlists/" + playlistId + "/tracks?limit=50";
 
         while (url != null) {
-            // Build the HTTP request
             Request request = new Request.Builder()
-                .url(url)
-                .get()
-                .addHeader("Authorization", "Bearer " + accessToken)
-                .build();
+                    .url(url)
+                    .get()
+                    .addHeader("Authorization", "Bearer " + accessToken)
+                    .build();
 
-            // Execute the request and process the response
-            try (Response response = client.newCall(request).execute()) {
-                if (!response.isSuccessful()) {
-                    logger.error("Failed Spotify API Request. Response Code: " + response.code());
-                    logger.error("Response Body: " + response.body().string());
-                    throw new IOException("Unexpected response code: " + response.code());
+            try (Response response = HTTP.newCall(request).execute()) {
+                if (response.code() == 401) {
+                    // Token expired mid-session — re-auth once and retry
+                    authenticate();
+                    return getPlaylistTracks(playlistId);
                 }
+                if (!response.isSuccessful())
+                    throw new IOException("Spotify API error: HTTP " + response.code());
 
-                // Parse the response body
-                String responseBody = response.body().string();
-                JsonNode json = new ObjectMapper().readTree(responseBody);
-                logger.info("Spotify API Response: " + responseBody);
-
-                // Extract track titles
+                JsonNode json = MAPPER.readTree(response.body().string());
                 if (json.has("items")) {
                     json.get("items").forEach(item -> {
                         JsonNode track = item.get("track");
-                        if (track != null && track.has("name")) {
-                            String trackName = track.get("name").asText();
-                            String artistName = track.get("artists").get(0).get("name").asText();
-                            trackTitles.add(trackName + " by " + artistName);
-                        } else {
-                            logger.warn("Track information is missing in API response.");
+                        if (track != null && !track.isNull() && track.has("name")) {
+                            String name   = track.path("name").asText("Unknown");
+                            String artist = track.path("artists").path(0).path("name").asText("Unknown");
+                            trackTitles.add(name + " " + artist);
                         }
                     });
                 }
-
-                // Check for the next page of results
-                url = json.has("next") && !json.get("next").isNull() ? json.get("next").asText() : null;
-                logger.info("Next URL: " + (url != null ? url : "No more pages."));
+                url = json.has("next") && !json.get("next").isNull()
+                        ? json.get("next").asText() : null;
             }
         }
 
@@ -121,37 +116,31 @@ public class SpotifyUtils {
     }
 
     public static String getTrackTitle(String trackId) throws IOException {
+        ensureConfig();
+        if (!configAvailable) throw new IOException("Spotify not configured.");
         authenticateIfNeeded();
 
-        String url = "https://api.spotify.com/v1/tracks/" + trackId;
-        logger.info("Constructed API URL: " + url);
-
-        OkHttpClient client = new OkHttpClient();
         Request request = new Request.Builder()
-            .url(url)
-            .get()
-            .addHeader("Authorization", "Bearer " + accessToken)
-            .build();
+                .url("https://api.spotify.com/v1/tracks/" + trackId)
+                .get()
+                .addHeader("Authorization", "Bearer " + accessToken)
+                .build();
 
-        try (Response response = client.newCall(request).execute()) {
-            if (!response.isSuccessful()) {
-                logger.error("Failed Spotify API Request. Response Code: " + response.code());
-                logger.error("Response Body: " + response.body().string());
-                throw new IOException("Unexpected response code: " + response.code());
-            }
+        try (Response response = HTTP.newCall(request).execute()) {
+            if (response.code() == 401) { authenticate(); return getTrackTitle(trackId); }
+            if (!response.isSuccessful())
+                throw new IOException("Spotify API error: HTTP " + response.code());
 
-            String responseBody = response.body().string();
-            JsonNode json = new ObjectMapper().readTree(responseBody);
-            return json.get("name").asText() + " by " + json.get("artists").get(0).get("name").asText();
+            JsonNode json = MAPPER.readTree(response.body().string());
+            String name   = json.path("name").asText("Unknown");
+            String artist = json.path("artists").path(0).path("name").asText("Unknown");
+            return name + " " + artist;
         }
     }
 
     public static String extractSpotifyId(String url) {
-        if (url.contains("/track/")) {
-            return url.split("/track/")[1].split("\\?")[0];
-        } else if (url.contains("/playlist/")) {
-            return url.split("/playlist/")[1].split("\\?")[0];
-        }
+        if (url.contains("/track/"))    return url.split("/track/")[1].split("\\?")[0];
+        if (url.contains("/playlist/")) return url.split("/playlist/")[1].split("\\?")[0];
         return null;
     }
 
@@ -163,30 +152,22 @@ public class SpotifyUtils {
         List<String> titles = new ArrayList<>();
         ProcessBuilder pb = new ProcessBuilder("yt-dlp", "--flat-playlist", "-J", playlistUrl);
         Process process = pb.start();
-        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-        StringBuilder jsonOutput = new StringBuilder();
-        String line;
-        while ((line = reader.readLine()) != null) {
-            jsonOutput.append(line);
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            StringBuilder json = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) json.append(line);
+            JSONArray entries = new JSONObject(json.toString()).getJSONArray("entries");
+            for (int i = 0; i < entries.length(); i++)
+                titles.add(entries.getJSONObject(i).getString("title"));
         }
-        reader.close();
-
-        JSONObject json = new JSONObject(jsonOutput.toString());
-        JSONArray entries = json.getJSONArray("entries");
-        for (int i = 0; i < entries.length(); i++) {
-            JSONObject entry = entries.getJSONObject(i);
-            titles.add(entry.getString("title"));
-        }
-
         return titles;
     }
 
     public static String getYouTubeTitle(String videoUrl) throws IOException {
         ProcessBuilder pb = new ProcessBuilder("yt-dlp", "--get-title", videoUrl);
         Process process = pb.start();
-        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-        String title = reader.readLine();
-        reader.close();
-        return title;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            return reader.readLine();
+        }
     }
 }
