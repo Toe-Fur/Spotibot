@@ -106,7 +106,7 @@ public class SpotifyUtils {
                         if (track != null && !track.isNull() && track.has("name")) {
                             String name   = track.path("name").asText("Unknown");
                             String artist = track.path("artists").path(0).path("name").asText("Unknown");
-                            trackTitles.add(name + " " + artist);
+                            trackTitles.add(name + StreamTrack.SEP + artist); // metzfam: title/artist kept apart for stream-server matching
                         }
                     });
                 }
@@ -137,7 +137,7 @@ public class SpotifyUtils {
             JsonNode json = MAPPER.readTree(response.body().string());
             String name   = json.path("name").asText("Unknown");
             String artist = json.path("artists").path(0).path("name").asText("Unknown");
-            return name + " " + artist;
+            return name + StreamTrack.SEP + artist;
         }
     }
 

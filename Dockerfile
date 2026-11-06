@@ -31,8 +31,10 @@ RUN for i in 1 2 3; do \
     done && \
     rm -rf /var/lib/apt/lists/* && \
     \
-    # yt-dlp (pure Python — arch-independent)
-    curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+    # yt-dlp standalone build (bundles its own Python; the zipapp needs Python >= 3.10 and newer
+    # releases are dropping 3.10, which is what Ubuntu 22.04 ships). `yt-dlp -U` keeps working.
+    YTDLP_BIN=$([ "$TARGETARCH" = "arm64" ] && echo "yt-dlp_linux_aarch64" || echo "yt-dlp_linux") && \
+    curl -fsSL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${YTDLP_BIN}" \
       -o /usr/local/bin/yt-dlp && \
     chmod +x /usr/local/bin/yt-dlp && \
     \

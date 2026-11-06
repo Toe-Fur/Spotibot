@@ -12,6 +12,8 @@
 > Play music in your Discord server from YouTube, Spotify, or a plain search term.
 > Spotibot downloads audio on demand, queues it locally, and streams it via LavaPlayer.
 > No third-party music API subscriptions required.
+>
+> **Guide and updates for users:** [spotibot.metzfam.space](https://spotibot.metzfam.space) (buttons, Gaming mode, radio, all commands, changelog).
 
 ---
 
@@ -19,6 +21,7 @@
 
 - [How It Works](#how-it-works)
 - [Features](#features)
+- [Optional features: streaming, Gaming mode, Jellyfin](#optional-features-streaming-gaming-mode-jellyfin)
 - [Commands](#commands)
 - [Requirements](#requirements)
 - [Quick Start — Windows](#quick-start--windows)
@@ -68,7 +71,7 @@ Spotibot sidesteps this by using **yt-dlp**, which runs YouTube's own player Jav
   LavaPlayer reads the local file and streams into voice
   · TrackScheduler manages the per-guild playback queue
   · Now Playing embed with interactive buttons (⏩ ⏹️ 📝)
-  · Auto-disconnects when queue empties and no downloads pending
+  · Stays in the channel; leaves when dismissed, idle 30 min, or alone 5 min
 ```
 
 ### File storage and lifecycle
@@ -110,34 +113,62 @@ Downloads are processed through a single shared thread pool with a `LinkedBlocki
 
 ## Features
 
-- **Multi-source playback** — YouTube URLs, YouTube playlists, Spotify tracks, Spotify playlists, or plain search queries
-- **Per-guild isolation** — independent queues, players, and state for every server
-- **Interactive embeds** — Now Playing card with skip, stop, and queue buttons
-- **Paginated queue** — `!queue` shows tracks page-by-page with prev/next navigation
-- **Playback controls** — pause, resume, volume, skip, stop
-- **Local audio cache** — downloaded files persist in `config/<guild-id>/` to avoid re-downloading
-- **YouTube cookie support** — bypass age-gating by mounting your cookies file
-- **Spotify resolution** — converts Spotify links to search terms and fetches via yt-dlp
-- **Blackjack mini-game** — per-guild card game with persistent chip balances
-- **Docker-first** — multi-stage Dockerfile, auto-updates yt-dlp on start, health check included
+- **One live queue message** — a single message per server, edited as songs load and play (no message per song).
+  Now playing with elapsed time, the queue 5 per page, and a status line ("Skipped Yellow (Sam)").
+- **Buttons for everything** — `-10s` `-5s` `Pause/Resume` `+5s` `+10s`, `Skip` `Stop` `Leave` `Prev` `Next`,
+  `Shuffle` `Repeat`, and `Gaming mode` `Radio` `Save` when those features are set up.
+- **Slash commands** — `/play` (with song suggestions in streaming mode), `/skip`, `/queue`, `/repeat`, ... replies only you see.
+- **Multi-source playback** — YouTube URLs and playlists, Spotify tracks and playlists, or plain search terms.
+- **Stays in the channel** — leaves when dismissed, after 30 min with nothing playing, or after 5 min alone.
+- **Per-guild isolation and settings** — independent queues, players and settings (`!settings`) for every server.
+- **YouTube cookie support** — mount your cookies file to get past bot checks and age-gating.
+- **Blackjack mini-game** — per-guild card game with persistent chip balances.
+- **Docker-first** — multi-stage Dockerfile, standalone yt-dlp that auto-updates on start, health check included.
+
+---
+
+## Optional features: streaming, Gaming mode, Jellyfin
+
+Out of the box Spotibot runs in **classic mode**: each song is downloaded with yt-dlp, then played. That is the
+default and needs nothing else. Add these if you want more (see [`companion/README.md`](companion/README.md) and
+[`docker-compose.streaming.example.yml`](docker-compose.streaming.example.yml) for a ready-made stack):
+
+| Feature | What you add | Setting |
+|---|---|---|
+| **Streaming mode**: songs start in ~5 s (instantly when cached), next 5 songs pre-load, **Radio**, `/play` suggestions | `companion/ytmusic-stream-server` + `bgutil-pot` | `STREAM_SERVER_URL` |
+| **Gaming mode**: voice commands ("Spotibot, play Africa by Toto", "Spotibot, skip") | `companion/spotibot-stt` (local Whisper speech-to-text) | `STT_URL` |
+| **Jellyfin playlists** (`/playlist`) and the **Save** button | your Jellyfin server | `JELLYFIN_URL`, `JELLYFIN_API_KEY`, `JELLYFIN_USER` |
+
+Buttons and commands for features you haven't set up are hidden. Gaming mode transcribes speech in the voice
+channel on your own machine, in memory only; only phrases starting with "Spotibot" are acted on or logged.
+Tell people in your server when it's on.
 
 ---
 
 ## Commands
+
+Everything below also works as a slash command (`/play`, `/skip`, ...). Control commands report on the queue
+message and the typed command is deleted when the bot has Manage Messages (`!settings tidy off` to keep them).
 
 ### Music
 
 | Command | Description |
 |---|---|
 | `!play <query or URL>` | Join your voice channel and play or queue audio |
-| `!pause` | Pause the current track |
-| `!resume` | Resume a paused track |
-| `!volume` | Show current volume |
-| `!volume <0–100>` | Set volume |
-| `!np` / `!nowplaying` | Show the current track embed |
-| `!skip` | Skip the current track |
-| `!stop` | Stop playback, clear the queue, and disconnect |
-| `!queue` | Show the current queue (paginated) |
+| `!playnext <query or URL>` | Same, but right after the current song |
+| `!join` / `!leave` | Join your voice channel and wait / dismiss the bot |
+| `!pause` / `!resume` | Pause or resume |
+| `!skip` / `!stop` | Next song / clear the music (the bot stays in the channel) |
+| `!volume [0-100]` | Show or set volume |
+| `!np` | What's playing and how far in |
+| `!queue` | Move the queue message to the bottom of the chat |
+| `!shuffle` | Shuffle the queue |
+| `!repeat off\|song\|queue` | Repeat mode |
+| `!radio on\|off\|now` | *(streaming mode)* Keep playing similar songs when the queue runs out; `now` = songs like this one next |
+| `!gaming on\|off` | *(needs `STT_URL`)* Gaming mode: voice commands |
+| `!playlists` / `!playlist <name>` | *(Jellyfin)* List / play your Jellyfin playlists |
+| `!save` | *(Jellyfin)* Favorite the current song in Jellyfin |
+| `!settings [idle <min>\|tidy on/off\|gaming on/off\|radio on/off]` | Show or change server settings (Manage Server to change) |
 | `!help` | Show the help message |
 
 **Supported `!play` inputs:**
@@ -267,6 +298,13 @@ All environment variables generate `config.json` on first start if one does not 
 | `STOP_EMOJI` | `⏹️` | Stop button emoji |
 | `QUEUE_EMOJI` | `📝` | Queue button emoji |
 | `TZ` | `America/Los_Angeles` | Container timezone |
+| `STREAM_SERVER_URL` | *(empty = classic mode)* | ytmusic-stream-server URL: streaming mode + Radio |
+| `STT_URL` | *(empty = no Gaming mode)* | spotibot-stt URL: Gaming mode (voice commands) |
+| `VOICE_COMMANDS` | `on` | Default Gaming mode state for new servers (`off` to start off) |
+| `JELLYFIN_URL` / `JELLYFIN_API_KEY` / `JELLYFIN_USER` | *(empty)* | Jellyfin playlists and the Save button |
+| `IDLE_TIMEOUT_MIN` | `30` | Leave after this long with nothing playing (per-server override: `!settings idle`) |
+| `ALONE_TIMEOUT_MIN` | `5` | Leave after this long alone in the channel |
+| `SPOTIBOT_GUIDE_URL` | GitHub README | Target of the "Guide & updates" button |
 
 ---
 

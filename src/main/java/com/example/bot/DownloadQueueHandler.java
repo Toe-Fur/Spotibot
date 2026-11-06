@@ -2,139 +2,107 @@ package com.example.bot;
 
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
-import java.util.concurrent.BlockingQueue;
+
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.logging.Logger;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
+import java.util.logging.Logger;
 
+/**
+ * Loads requested songs into a guild's queue, in order, one at a time.
+ *
+ * Two modes:
+ *  - Streaming (STREAM_SERVER_URL set): songs stream from a ytmusic-stream-server and start as soon as the
+ *    server has the first bytes; the next 5 songs are pre-warmed while one loads.
+ *  - Classic (default): each song is downloaded with yt-dlp, then played from disk.
+ * Progress shows on the single live queue panel instead of a message per song.
+ */
 public class DownloadQueueHandler {
     private static final Logger logger = Logger.getLogger(DownloadQueueHandler.class.getName());
 
     public static void queueAndPlay(String input, TrackScheduler trackScheduler, GuildMessageChannel messageChannel, Guild guild, String serverFolder, BlockingQueue<Runnable> downloadQueue) {
         if (input == null || input.isEmpty()) {
-            messageChannel.sendMessage("Invalid track title.").queue();
+            PlayerControls.flash(messageChannel, "Invalid track title.");
             return;
         }
-
-        String displayTitle = input.replace("ytsearch:", "").trim();
-
-        // Send "Searching…" immediately so the user gets instant feedback, then edit it to the final status.
-        messageChannel.sendMessage("🔍 Searching for `" + displayTitle + "`...").queue(searchMsg -> {
-            trackScheduler.incrementPendingDownloads();
-            downloadQueue.offer(() -> {
-                boolean delegatedToQueueSong = false;
-                long durationSeconds = 0;
-                try {
-                    String query = input.contains("youtube.com") || input.contains("youtu.be") ? input : "ytsearch:" + input;
-                    String sanitizedSongName = sanitizeFileName(input);
-                    String outputFilePath = serverFolder + sanitizedSongName + ".webm";
-
-                    File downloadedFile = new File(outputFilePath);
-                    if (!downloadedFile.exists()) {
-                        // Fetch duration + approx file size before downloading so we can show progress info
-                        long[] meta = fetchMetadata(query);
-                        if (meta != null) {
-                            durationSeconds = meta[0];
-                            long filesize = meta[1];
-                            StringBuilder dlMsg = new StringBuilder("⏳ Downloading `").append(displayTitle).append("`");
-                            if (durationSeconds > 0 || filesize > 0) {
-                                dlMsg.append("  —  ");
-                                if (durationSeconds > 0) dlMsg.append(formatDuration(durationSeconds));
-                                if (filesize > 0) {
-                                    if (durationSeconds > 0) dlMsg.append(", ");
-                                    dlMsg.append(formatFileSize(filesize));
-                                }
-                            }
-                            final String finalDlMsg = dlMsg.toString();
-                            searchMsg.editMessage(finalDlMsg).queue(null, e -> {});
-                        }
-                        downloadAndQueueSong(query, outputFilePath, trackScheduler, messageChannel, guild);
-                    }
-
-                    if (downloadedFile.exists()) {
-                        delegatedToQueueSong = true; // queueSong's load callbacks will decrement
-                        trackScheduler.queueSong(downloadedFile, input);
-                        String queuedMsg = String.format("📍 **Queued:** `%s`", displayTitle);
-                        if (durationSeconds > 0) queuedMsg += "  [" + formatDuration(durationSeconds) + "]";
-                        final String finalQueuedMsg = queuedMsg;
-                        searchMsg.editMessage(finalQueuedMsg)
-                                .queue(m -> m.suppressEmbeds(true).queue(), e -> {});
-                    } else {
-                        searchMsg.editMessage("❌ Failed to download: `" + displayTitle + "`")
-                                .queue(null, e -> {});
-                    }
-                } catch (IOException | InterruptedException e) {
-                    searchMsg.editMessage("❌ Error downloading `" + displayTitle + "`: " + e.getMessage())
-                            .queue(null, e2 -> {});
-                    logger.severe("Error processing track: " + input + " - " + e.getMessage());
-                } finally {
-                    if (!delegatedToQueueSong) {
-                        trackScheduler.decrementPendingDownloads();
-                    }
-                }
-            });
-        });
+        queueAll(List.of(input), null, trackScheduler, messageChannel, guild, downloadQueue);
     }
 
-    /**
-     * Fetches duration (seconds) and approximate file size (bytes) from yt-dlp without downloading.
-     * Returns [durationSeconds, filesizeBytes], or null if the fetch fails or times out.
-     */
-    private static long[] fetchMetadata(String query) {
-        try {
-            ProcessBuilder pb = new ProcessBuilder(
-                    "yt-dlp",
-                    "--print", "duration",
-                    "--print", "filesize_approx",
-                    "--no-download",
-                    "--no-warnings",
-                    "--no-playlist",
-                    "-f", "bestaudio/best",
-                    query
-            );
-            pb.redirectErrorStream(false);
-            Process process = pb.start();
-            List<String> lines = new ArrayList<>();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    line = line.trim();
-                    if (!line.isBlank()) lines.add(line);
-                }
-            }
-            boolean done = process.waitFor(15, TimeUnit.SECONDS);
-            if (!done) { process.destroyForcibly(); return null; }
+    public static void queueAll(List<String> inputs, String notice, TrackScheduler trackScheduler,
+                                GuildMessageChannel messageChannel, Guild guild, BlockingQueue<Runnable> downloadQueue) {
+        queueAll(inputs, notice, false, trackScheduler, messageChannel, guild, downloadQueue);
+    }
 
-            long duration = 0, filesize = 0;
-            if (lines.size() >= 1 && !lines.get(0).equals("NA")) {
-                duration = (long) Double.parseDouble(lines.get(0));
-            }
-            if (lines.size() >= 2 && !lines.get(1).equals("NA")) {
-                filesize = Long.parseLong(lines.get(1));
-            }
-            return new long[]{duration, filesize};
-        } catch (Exception e) {
-            logger.warning("Metadata fetch failed (non-fatal): " + e.getMessage());
-            return null;
+    public static void queueAll(List<String> inputs, String notice, boolean next, TrackScheduler trackScheduler,
+                                GuildMessageChannel messageChannel, Guild guild, BlockingQueue<Runnable> downloadQueue) {
+        List<StreamTrack> tracks = new ArrayList<>();
+        for (String in : inputs) {
+            if (in != null && !in.isBlank()) tracks.add(StreamTrack.parse(in));
+        }
+        queueTracks(tracks, notice, next, trackScheduler, messageChannel, guild, downloadQueue);
+    }
+
+    public static void queueTracks(List<StreamTrack> tracks, String notice, boolean next, TrackScheduler trackScheduler,
+                                   GuildMessageChannel messageChannel, Guild guild, BlockingQueue<Runnable> downloadQueue) {
+        if (tracks.isEmpty()) return;
+        QueuePanel panel = QueuePanel.of(guild.getIdLong());
+        if (panel.loading.get() == 0 && trackScheduler.isQueueEmpty()) panel.reset(); // fresh session: clear old counters
+        panel.loading.addAndGet(tracks.size());
+        String n = notice != null ? notice
+                : tracks.size() == 1 ? (next ? "Up next: " : "Added: ") + tracks.get(0).display : "Added " + tracks.size() + " songs";
+        panel.attach(messageChannel, trackScheduler, n);
+        boolean streaming = StreamTrack.enabled();
+        if (streaming) StreamTrack.prefetch(tracks.subList(0, Math.min(5, tracks.size())));
+        String serverFolder = PlayerControls.serverFolder(guild);
+        // "next" batches keep their own order at the front of the queue: 1st at 0, 2nd at 1, ...
+        final java.util.concurrent.atomic.AtomicInteger nextPos = new java.util.concurrent.atomic.AtomicInteger();
+        final java.util.function.IntSupplier position = next ? nextPos::getAndIncrement : null;
+
+        for (int i = 0; i < tracks.size(); i++) {
+            final StreamTrack t = tracks.get(i);
+            final List<StreamTrack> ahead = tracks.subList(Math.min(i + 1, tracks.size()), Math.min(i + 6, tracks.size()));
+            trackScheduler.incrementPendingDownloads();
+            downloadQueue.offer(() -> {
+                boolean ok = false;
+                try {
+                    t.fetchTitleIfLink();
+                    long t0 = System.currentTimeMillis();
+                    if (streaming) {
+                        if (!ahead.isEmpty()) StreamTrack.prefetch(ahead);
+                        ok = t.warm() && trackScheduler.load(t.streamUrl(), t, position);
+                    } else {
+                        File f = download(t, serverFolder);
+                        ok = f != null && trackScheduler.load(f.getAbsolutePath(), t, position);
+                    }
+                    logger.info((ok ? "Ready in " : "Failed after ") + (System.currentTimeMillis() - t0) + " ms: " + t.display);
+                } catch (Exception e) {
+                    logger.warning("Error loading " + t.display + ": " + e);
+                } finally {
+                    panel.loading.decrementAndGet();
+                    if (!ok) panel.failed.incrementAndGet();
+                    trackScheduler.decrementPendingDownloads();
+                    panel.update();
+                    if (!ok) trackScheduler.leaveIfIdle();
+                }
+            });
         }
     }
 
-    private static String formatDuration(long totalSeconds) {
-        long h = totalSeconds / 3600;
-        long m = (totalSeconds % 3600) / 60;
-        long s = totalSeconds % 60;
-        if (h > 0) return String.format("%d:%02d:%02d", h, m, s);
-        return String.format("%d:%02d", m, s);
-    }
-
-    private static String formatFileSize(long bytes) {
-        if (bytes >= 1024 * 1024) return String.format("%.1f MB", bytes / (1024.0 * 1024.0));
-        return String.format("%d KB", bytes / 1024);
+    /** Classic mode: download one song with yt-dlp (cookies from config/cookies.txt if present). */
+    private static File download(StreamTrack t, String serverFolder) throws IOException, InterruptedException {
+        new File(serverFolder).mkdirs();
+        String out = serverFolder + sanitizeFileName(t.videoId != null ? t.videoId : t.display) + ".webm";
+        File f = new File(out);
+        if (f.exists() && f.length() > 0) return f;
+        if (downloadSong(t.legacyQuery(), out, null)) return f;
+        // YouTube now 403s audio-only streams without a PO token; these clients still serve a playable format.
+        logger.info("Retrying with fallback YouTube clients: " + t.display);
+        return downloadSong(t.legacyQuery(), out, "youtube:player_client=web_music,mweb") ? f : null;
     }
 
     /**
@@ -167,7 +135,9 @@ public class DownloadQueueHandler {
     public static void clearDownloadsFolder(String serverFolder) {
         File downloadFolder = new File(serverFolder);
         if (downloadFolder.exists() && downloadFolder.isDirectory()) {
-            for (File file : downloadFolder.listFiles()) {
+            File[] files = downloadFolder.listFiles();
+            if (files == null) return;
+            for (File file : files) {
                 if (file.isFile()) {
                     file.delete();
                 }
@@ -175,17 +145,9 @@ public class DownloadQueueHandler {
         }
     }
 
-    private static void downloadAndQueueSong(
-            String query,
-            String outputFilePath,
-            TrackScheduler trackScheduler,
-            GuildMessageChannel messageChannel,
-            Guild guild
-    ) throws IOException, InterruptedException {
-
+    private static boolean downloadSong(String query, String outputFilePath, String extractorArgs) throws IOException, InterruptedException {
         // Resolve cookie path (exporter writes to /app/config/cookies.txt)
         String cookiePathToUse = null;
-
         try {
             String p = ConfigUtils.COOKIE_FILE_PATH;
             if (p != null && !p.isBlank()) {
@@ -193,49 +155,24 @@ public class DownloadQueueHandler {
                 if (cookieFile.exists() && cookieFile.isFile() && cookieFile.length() > 0) {
                     // Copy to temp so yt-dlp doesn't read a file while exporter might be rewriting it
                     File tmp = File.createTempFile("spotibot-cookies-", ".txt");
-                    java.nio.file.Files.copy(
-                            cookieFile.toPath(),
-                            tmp.toPath(),
-                            java.nio.file.StandardCopyOption.REPLACE_EXISTING
-                    );
+                    java.nio.file.Files.copy(cookieFile.toPath(), tmp.toPath(),
+                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                     tmp.deleteOnExit();
                     cookiePathToUse = tmp.getAbsolutePath();
-                    logger.info("Using cookies for yt-dlp (temp copy): " + cookiePathToUse);
-                } else {
-                    logger.warning("cookies.txt missing/empty at: " + p + " (continuing without cookies)");
                 }
             }
         } catch (Exception e) {
-            logger.warning("Failed to validate/copy cookies file; continuing without cookies. " + e.getMessage());
+            logger.warning("Failed to copy cookies file; continuing without cookies. " + e.getMessage());
         }
 
-        ProcessBuilder downloadBuilder;
+        List<String> cmd = new ArrayList<>(List.of("yt-dlp", "-4", "--js-runtimes", "deno", "-f", "bestaudio/best", "--no-playlist"));
+        if (cookiePathToUse != null) cmd.addAll(List.of("--cookies", cookiePathToUse));
+        if (extractorArgs != null) cmd.addAll(List.of("--extractor-args", extractorArgs));
+        cmd.addAll(List.of("-o", outputFilePath, query));
 
-        if (cookiePathToUse != null) {
-            downloadBuilder = new ProcessBuilder(
-                    "yt-dlp",
-                    "-4",
-                    "--js-runtimes", "deno",
-                    "-f", "bestaudio/best",
-                    "--no-playlist",
-                    "--cookies", cookiePathToUse,
-                    "-o", outputFilePath,
-                    query
-            );
-        } else {
-            downloadBuilder = new ProcessBuilder(
-                    "yt-dlp",
-                    "-4",
-                    "--js-runtimes", "deno",
-                    "-f", "bestaudio/best",
-                    "--no-playlist",
-                    "-o", outputFilePath,
-                    query
-            );
-        }
-
+        ProcessBuilder downloadBuilder = new ProcessBuilder(cmd);
         downloadBuilder.redirectErrorStream(true);
-        logger.info("Running: " + String.join(" ", downloadBuilder.command()));
+        logger.info("Running: " + String.join(" ", cmd));
 
         Process downloadProcess = downloadBuilder.start();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(downloadProcess.getInputStream()))) {
@@ -243,25 +180,18 @@ public class DownloadQueueHandler {
             while ((line = reader.readLine()) != null) {
                 logger.info(line);
             }
+        } finally {
+            if (cookiePathToUse != null) new File(cookiePathToUse).delete();
         }
 
-        boolean completedInTime = downloadProcess.waitFor(180, TimeUnit.SECONDS);
-        if (!completedInTime) {
+        if (!downloadProcess.waitFor(180, TimeUnit.SECONDS)) {
             downloadProcess.destroyForcibly();
             logger.severe("Download process timed out for query: " + query);
-            messageChannel.sendMessage("Failed to download song (timeout): " + query)
-                    .queue(msg -> msg.suppressEmbeds(true).queue());
-            return;
+            return false;
         }
-
         int exit = downloadProcess.exitValue();
         logger.info("yt-dlp exit code: " + exit);
-
-        File downloadedFile = new File(outputFilePath);
-        if (exit != 0 || !downloadedFile.exists()) {
-            messageChannel.sendMessage("Failed to download song: " + query)
-                    .queue(msg -> msg.suppressEmbeds(true).queue());
-        }
+        return exit == 0 && new File(outputFilePath).exists();
     }
 
     private static String sanitizeFileName(String input) {

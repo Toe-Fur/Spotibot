@@ -5,6 +5,7 @@ import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
+import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.components.buttons.Button;
@@ -34,6 +35,7 @@ public class CommandHandler {
 
     public static void handleMessage(MessageReceivedEvent event, Spotibot bot, AudioPlayerManager playerManager, TrackSchedulerRegistry trackSchedulerRegistry, BlockingQueue<Runnable> downloadQueue) {
         String message = event.getMessage().getContentRaw();
+        String lower = message.trim().toLowerCase();
         GuildMessageChannel messageChannel = event.getChannel().asGuildMessageChannel();
         Guild guild = event.getGuild();
         TrackScheduler trackScheduler = trackSchedulerRegistry.getOrCreate(guild, bot);
@@ -42,96 +44,145 @@ public class CommandHandler {
 
         if (message.startsWith("!play ")) {
             String input = message.replace("!play ", "").trim();
+            AudioChannel voiceChannel = event.getMember() == null || event.getMember().getVoiceState() == null
+                    ? null : event.getMember().getVoiceState().getChannel();
+            if (voiceChannel == null) {
+                PlayerControls.flash(messageChannel, "You must be in a voice channel to use this command.");
+                return;
+            }
+            play(guild, voiceChannel, messageChannel, input, bot, downloadQueue, null);
 
-            try {
-                VoiceChannel voiceChannel = (VoiceChannel) event.getMember().getVoiceState().getChannel();
-                if (voiceChannel == null) {
-                    messageChannel.sendMessage("You must be in a voice channel to use this command.").queue();
-                    return;
-                }
+        } else if (message.equalsIgnoreCase("!join")) {
+            tidy(event);
+            AudioChannel voiceChannel = event.getMember() == null || event.getMember().getVoiceState() == null
+                    ? null : event.getMember().getVoiceState().getChannel();
+            if (voiceChannel == null) {
+                PlayerControls.flash(messageChannel, "Join a voice channel first, then type !join.");
+                return;
+            }
+            TrackScheduler ts = VoiceSession.join(guild, voiceChannel, messageChannel);
+            QueuePanel.of(guild.getIdLong()).attach(messageChannel, ts, "Joined " + voiceChannel.getName() + " (" + who(event) + ")");
 
-                guild.getAudioManager().setSendingHandler(new AudioPlayerSendHandler(trackScheduler.getPlayer()));
-                guild.getAudioManager().openAudioConnection(voiceChannel);
-                trackScheduler.getPlayer().setVolume(ConfigUtils.defaultVolume);
-                trackScheduler.setNotifyChannel(messageChannel);
+        } else if (message.equalsIgnoreCase("!leave")) {
+            tidy(event);
+            if (VoiceSession.isConnected(guild)) VoiceSession.leave(guild, "dismissed by " + who(event));
+            else PlayerControls.flash(messageChannel, "I'm not in a voice channel.");
 
-                if (input.contains("spotify.com/track")) {
-                    String trackId = SpotifyUtils.extractSpotifyId(input);
-                    String trackTitle = SpotifyUtils.getTrackTitle(trackId);
-                    DownloadQueueHandler.queueAndPlay(trackTitle, trackScheduler, messageChannel, guild, serverFolder, downloadQueue);
-                } else if (input.contains("spotify.com/playlist")) {
-                    String playlistId = SpotifyUtils.extractSpotifyId(input);
-                    try {
-                        List<String> trackTitles = SpotifyUtils.getPlaylistTracks(playlistId);
-                        if (trackTitles.isEmpty()) {
-                            messageChannel.sendMessage("❌ That Spotify playlist is empty or has no playable tracks.").queue();
-                            return;
-                        }
-                        messageChannel.sendMessage("📋 Found **" + trackTitles.size() + "** tracks. Queuing...").queue();
-                        for (String trackTitle : trackTitles) {
-                            DownloadQueueHandler.queueAndPlay(trackTitle, trackScheduler, messageChannel, guild, serverFolder, downloadQueue);
-                        }
-                    } catch (IOException e) {
-                        if ("SPOTIFY_NOT_ACCESSIBLE".equals(e.getMessage())) {
-                            messageChannel.sendMessage(
-                                "❌ **That playlist isn't accessible.**\n" +
-                                "Spotify's curated playlists (Discover Weekly, Daily Mixes, etc.) are locked to your account and can't be read by bots.\n\n" +
-                                "**Workaround:** Copy the songs into your own Spotify playlist, make it public, and share that link instead."
-                            ).queue();
-                        } else {
-                            messageChannel.sendMessage("❌ Spotify error: " + e.getMessage()).queue();
-                        }
-                        return;
-                    }
-                } else if (input.contains("youtube.com/playlist")) {
-                    final GuildMessageChannel ch = messageChannel;
-                    messageChannel.sendMessage("📋 Fetching YouTube playlist...").queue();
-                    trackScheduler.incrementPendingDownloads();
-                    downloadQueue.offer(() -> {
-                        try {
-                            List<String> videoUrls = DownloadQueueHandler.getYouTubePlaylistUrls(input);
-                            if (videoUrls.isEmpty()) {
-                                ch.sendMessage("❌ Could not fetch playlist or it's empty.").queue();
-                            } else {
-                                ch.sendMessage("📋 Found **" + videoUrls.size() + "** tracks. Queuing...").queue();
-                                for (String url : videoUrls) {
-                                    DownloadQueueHandler.queueAndPlay(url, trackScheduler, ch, guild, serverFolder, downloadQueue);
-                                }
-                            }
-                        } catch (Exception e) {
-                            ch.sendMessage("❌ Error fetching playlist: " + e.getMessage()).queue();
-                        } finally {
-                            trackScheduler.decrementPendingDownloads();
-                        }
-                    });
-                } else if (input.contains("youtube.com") || input.contains("youtu.be")) {
-                    DownloadQueueHandler.queueAndPlay(input, trackScheduler, messageChannel, guild, serverFolder, downloadQueue);
-                } else {
-                    DownloadQueueHandler.queueAndPlay(input, trackScheduler, messageChannel, guild, serverFolder, downloadQueue);
-                }
-            } catch (Exception e) {
-                messageChannel.sendMessage("An error occurred: " + e.getMessage()).queue();
+        } else if (lower.startsWith("!gaming") || lower.startsWith("!listen")) {
+            String arg = lower.replaceFirst("^!(gaming|listen)\\s*", "").replace("mode", "").trim();
+            Boolean on = arg.equals("on") ? Boolean.TRUE : arg.equals("off") ? Boolean.FALSE : null;
+            status(event, trackScheduler, PlayerControls.gaming(guild, on, who(event)));
+
+        } else if (lower.startsWith("!radio")) {
+            String arg = lower.substring(6).trim();
+            if (arg.equals("now") || arg.equals("like this")) {
+                status(event, trackScheduler, PlayerControls.radioNow(trackScheduler, messageChannel, who(event)));
+            } else {
+                Boolean on = arg.equals("on") ? Boolean.TRUE : arg.equals("off") ? Boolean.FALSE : null;
+                status(event, trackScheduler, PlayerControls.radio(trackScheduler, on, who(event)));
             }
 
-        } else if (message.equalsIgnoreCase("!pause")) {
-            handlePauseCommand(messageChannel, trackScheduler);
+        } else if (lower.equals("!shuffle")) {
+            status(event, trackScheduler, PlayerControls.shuffle(trackScheduler, who(event)));
 
-        } else if (message.equalsIgnoreCase("!resume")) {
-            handleResumeCommand(messageChannel, trackScheduler);
+        } else if (lower.startsWith("!repeat") || lower.startsWith("!loop")) {
+            String arg = lower.replaceFirst("^!(repeat|loop)\\s*", "");
+            TrackScheduler.Repeat r = switch (arg) {
+                case "off" -> TrackScheduler.Repeat.OFF;
+                case "one", "song", "this" -> TrackScheduler.Repeat.ONE;
+                case "all", "queue" -> TrackScheduler.Repeat.ALL;
+                default -> null;
+            };
+            status(event, trackScheduler, PlayerControls.repeat(trackScheduler, r, who(event)));
+
+        } else if (lower.equals("!save") || lower.equals("!like")) {
+            status(event, trackScheduler, PlayerControls.save(trackScheduler, who(event)));
+
+        } else if (lower.startsWith("!playnext ")) {
+            AudioChannel vc = event.getMember() == null || event.getMember().getVoiceState() == null
+                    ? null : event.getMember().getVoiceState().getChannel();
+            if (vc == null) {
+                PlayerControls.flash(messageChannel, "You must be in a voice channel to use this command.");
+                return;
+            }
+            play(guild, vc, messageChannel, message.substring(10).trim(), bot, downloadQueue, null, true);
+
+        } else if (lower.equals("!playlists")) {
+            tidy(event);
+            if (!JellyfinClient.enabled()) {
+                PlayerControls.flash(messageChannel, "Playlists need Jellyfin (JELLYFIN_URL) - see the guide.");
+            } else {
+                StringBuilder sb = new StringBuilder("**Playlists** (play one with `!playlist <name>`)\n");
+                for (JellyfinClient.Playlist p : JellyfinClient.playlists()) sb.append("- ").append(p.name()).append('\n');
+                String txt = sb.length() > 1900 ? sb.substring(0, 1900) + "..." : sb.toString();
+                messageChannel.sendMessage(txt).queue(m -> m.delete().queueAfter(60, TimeUnit.SECONDS, null, e -> {}), e -> {});
+            }
+
+        } else if (lower.startsWith("!playlist ")) {
+            AudioChannel vc = event.getMember() == null || event.getMember().getVoiceState() == null
+                    ? null : event.getMember().getVoiceState().getChannel();
+            if (vc == null) {
+                PlayerControls.flash(messageChannel, "You must be in a voice channel to use this command.");
+                return;
+            }
+            playPlaylist(guild, vc, messageChannel, message.substring(10).trim(), bot, who(event));
+
+        } else if (lower.startsWith("!settings")) {
+            String[] parts = lower.split("\\s+");
+            GuildSettings gs = GuildSettings.of(guild.getIdLong());
+            Member mem = event.getMember();
+            boolean admin = mem != null && (mem.hasPermission(Permission.MANAGE_SERVER) || mem.isOwner());
+            if (parts.length >= 3 && admin) {
+                switch (parts[1]) {
+                    case "idle" -> {
+                        try {
+                            gs.idleMinutes = Math.max(1, Math.min(240, Integer.parseInt(parts[2])));
+                        } catch (NumberFormatException ignored) {
+                        }
+                    }
+                    case "tidy" -> gs.tidy = parts[2].equals("on");
+                    case "gaming" -> PlayerControls.gaming(guild, parts[2].equals("on"), who(event));
+                    case "radio" -> gs.radio = parts[2].equals("on") && StreamTrack.enabled();
+                    default -> { }
+                }
+                GuildSettings.save();
+            } else if (parts.length >= 3) {
+                status(event, trackScheduler, "Only server managers can change settings");
+                return;
+            }
+            status(event, trackScheduler, gs.describe() + "  (change: !settings idle <min> | tidy on/off | gaming on/off | radio on/off)");
+
+        } else if (message.equalsIgnoreCase("!pause") || message.equalsIgnoreCase("!resume")) {
+            // metzfam: control commands report on the live panel (and the command message is tidied away)
+            status(event, trackScheduler, PlayerControls.setPaused(trackScheduler, message.equalsIgnoreCase("!pause"), who(event)));
 
         } else if (message.toLowerCase().startsWith("!volume")) {
-            handleVolumeCommand(message, messageChannel, trackScheduler);
-
-        } else if (message.equalsIgnoreCase("!np") || message.equalsIgnoreCase("!nowplaying")) {
-            handleNowPlayingCommand(messageChannel, trackScheduler);
+            String[] parts = message.trim().split("\\s+");
+            if (parts.length < 2) {
+                status(event, trackScheduler, "Volume is " + trackScheduler.getPlayer().getVolume() + "  (use !volume 0-100)");
+            } else {
+                try {
+                    int vol = Integer.parseInt(parts[1]);
+                    status(event, trackScheduler, vol < 0 || vol > 100 ? "Volume must be 0-100"
+                            : PlayerControls.volume(trackScheduler, vol, who(event)));
+                } catch (NumberFormatException e) {
+                    status(event, trackScheduler, "Usage: !volume 0-100");
+                }
+            }
 
         } else if (message.equalsIgnoreCase("!skip")) {
-            handleSkipCommand(guild, messageChannel, trackScheduler);
+            status(event, trackScheduler, PlayerControls.skip(trackScheduler, who(event)));
 
         } else if (message.equalsIgnoreCase("!stop")) {
-            handleStopCommand(guild, messageChannel, trackScheduler, serverFolder, bot, trackSchedulerRegistry, downloadQueue);
+            tidy(event);
+            handleStopCommand(guild, messageChannel, trackScheduler, serverFolder, bot, trackSchedulerRegistry, downloadQueue, who(event), true);
+
+        } else if (lower.equals("!np") || lower.equals("!nowplaying")) {
+            String np = PlayerControls.nowPlaying(trackScheduler);
+            status(event, trackScheduler, np);
 
         } else if (message.equalsIgnoreCase("!queue")) {
+            tidy(event);
             showQueue(event, trackScheduler, 0, bot);
 
         } else if (message.equalsIgnoreCase("!help")) {
@@ -192,85 +243,139 @@ public class CommandHandler {
         }
     }
 
-private static void handlePauseCommand(GuildMessageChannel messageChannel, TrackScheduler trackScheduler) {
-        if (trackScheduler.getPlayer().getPlayingTrack() == null) {
-            messageChannel.sendMessage("Nothing is playing right now.").queue();
-            return;
-        }
-        if (trackScheduler.getPlayer().isPaused()) {
-            messageChannel.sendMessage("Already paused. Use `!resume` to continue.").queue();
-            return;
-        }
-        trackScheduler.getPlayer().setPaused(true);
-        messageChannel.sendMessage("⏸ Paused.").queue();
+    /**
+     * metzfam: shared by !play and the voice command "Spotibot, play ...". Joins/stays in the channel
+     * (listening), then queues the request; the live panel shows progress.
+     */
+    public static void play(Guild guild, AudioChannel voiceChannel, GuildMessageChannel messageChannel, String input,
+                            Spotibot bot, BlockingQueue<Runnable> downloadQueue, String notice) {
+        play(guild, voiceChannel, messageChannel, input, bot, downloadQueue, notice, false);
     }
 
-    private static void handleResumeCommand(GuildMessageChannel messageChannel, TrackScheduler trackScheduler) {
-        if (!trackScheduler.getPlayer().isPaused()) {
-            messageChannel.sendMessage("Not paused.").queue();
+    /** Play a Jellyfin playlist by (fuzzy) name. */
+    public static void playPlaylist(Guild guild, AudioChannel voiceChannel, GuildMessageChannel messageChannel, String name,
+                                    Spotibot bot, String who) {
+        QueuePanel panel = QueuePanel.peek(guild.getIdLong());
+        if (!JellyfinClient.enabled()) {
+            PlayerControls.flash(messageChannel, "Playlists need Jellyfin (JELLYFIN_URL) - see the guide.");
             return;
         }
-        trackScheduler.getPlayer().setPaused(false);
-        messageChannel.sendMessage("▶ Resumed.").queue();
-    }
-
-    private static void handleVolumeCommand(String message, GuildMessageChannel messageChannel, TrackScheduler trackScheduler) {
-        String[] parts = message.trim().split("\\s+");
-        if (parts.length < 2) {
-            int current = trackScheduler.getPlayer().getVolume();
-            messageChannel.sendMessage("🔊 Current volume: **" + current + "**. Usage: `!volume <0-100>`").queue();
-            return;
-        }
-        try {
-            int vol = Integer.parseInt(parts[1]);
-            if (vol < 0 || vol > 100) {
-                messageChannel.sendMessage("Volume must be between 0 and 100.").queue();
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
+            JellyfinClient.Playlist pl = JellyfinClient.findPlaylist(name);
+            if (pl == null) {
+                String msg = "No playlist called \"" + name + "\". Try !playlists";
+                if (panel != null) panel.setNotice(msg); else PlayerControls.flash(messageChannel, msg);
                 return;
             }
-            trackScheduler.getPlayer().setVolume(vol);
-            messageChannel.sendMessage("🔊 Volume set to **" + vol + "**.").queue();
-        } catch (NumberFormatException e) {
-            messageChannel.sendMessage("Invalid volume. Usage: `!volume <0-100>`").queue();
+            List<String> tracks = JellyfinClient.playlistTracks(pl);
+            if (tracks.isEmpty()) {
+                PlayerControls.flash(messageChannel, "Playlist " + pl.name() + " is empty.");
+                return;
+            }
+            TrackScheduler ts = VoiceSession.join(guild, voiceChannel, messageChannel);
+            DownloadQueueHandler.queueAll(tracks, "Playlist " + pl.name() + " (" + tracks.size() + " songs)" + (who == null ? "" : " - " + who),
+                    ts, messageChannel, guild, bot.getDownloadQueue());
+        });
+    }
+
+    public static void play(Guild guild, AudioChannel voiceChannel, GuildMessageChannel messageChannel, String input,
+                            Spotibot bot, BlockingQueue<Runnable> downloadQueue, String notice, boolean next) {
+        TrackScheduler trackScheduler = VoiceSession.join(guild, voiceChannel, messageChannel);
+        String serverFolder = PlayerControls.serverFolder(guild);
+        try {
+            if (input.contains("spotify.com/track")) {
+                String trackId = SpotifyUtils.extractSpotifyId(input);
+                String trackTitle = SpotifyUtils.getTrackTitle(trackId);
+                DownloadQueueHandler.queueAll(List.of(trackTitle), notice, next, trackScheduler, messageChannel, guild, downloadQueue);
+            } else if (input.contains("spotify.com/playlist")) {
+                String playlistId = SpotifyUtils.extractSpotifyId(input);
+                try {
+                    List<String> trackTitles = SpotifyUtils.getPlaylistTracks(playlistId);
+                    if (trackTitles.isEmpty()) {
+                        messageChannel.sendMessage("❌ That Spotify playlist is empty or has no playable tracks.").queue();
+                        return;
+                    }
+                    DownloadQueueHandler.queueAll(trackTitles, "Added Spotify playlist (" + trackTitles.size() + " songs)",
+                            trackScheduler, messageChannel, guild, downloadQueue);
+                } catch (IOException e) {
+                    if ("SPOTIFY_NOT_ACCESSIBLE".equals(e.getMessage())) {
+                        messageChannel.sendMessage(
+                            "❌ **That playlist isn't accessible.**\n" +
+                            "Spotify's curated playlists (Discover Weekly, Daily Mixes, etc.) are locked to your account and can't be read by bots.\n\n" +
+                            "**Workaround:** Copy the songs into your own Spotify playlist, make it public, and share that link instead."
+                        ).queue();
+                    } else {
+                        messageChannel.sendMessage("❌ Spotify error: " + e.getMessage()).queue();
+                    }
+                    return;
+                }
+            } else if (input.contains("youtube.com/playlist")) {
+                final GuildMessageChannel ch = messageChannel;
+                QueuePanel.of(guild.getIdLong()).attach(messageChannel, trackScheduler, "Fetching YouTube playlist...");
+                trackScheduler.incrementPendingDownloads();
+                downloadQueue.offer(() -> {
+                    try {
+                        List<String> videoUrls = DownloadQueueHandler.getYouTubePlaylistUrls(input);
+                        if (videoUrls.isEmpty()) {
+                            ch.sendMessage("❌ Could not fetch playlist or it's empty.").queue();
+                        } else {
+                            DownloadQueueHandler.queueAll(videoUrls, "Added YouTube playlist (" + videoUrls.size() + " songs)",
+                                    trackScheduler, ch, guild, downloadQueue);
+                        }
+                    } catch (Exception e) {
+                        ch.sendMessage("❌ Error fetching playlist: " + e.getMessage()).queue();
+                    } finally {
+                        trackScheduler.decrementPendingDownloads();
+                    }
+                });
+            } else if (input.contains("youtube.com") || input.contains("youtu.be")) {
+                DownloadQueueHandler.queueAll(List.of(input), notice, next, trackScheduler, messageChannel, guild, downloadQueue);
+            } else {
+                DownloadQueueHandler.queueAll(List.of(input), notice, next, trackScheduler, messageChannel, guild, downloadQueue);
+            }
+        } catch (Exception e) {
+            PlayerControls.flash(messageChannel, "An error occurred: " + e.getMessage());
         }
     }
 
-    private static void handleNowPlayingCommand(GuildMessageChannel messageChannel, TrackScheduler trackScheduler) {
-        AudioTrack current = trackScheduler.getCurrentTrack();
-        if (current == null || trackScheduler.getPlayer().getPlayingTrack() == null) {
-            messageChannel.sendMessage("Nothing is playing right now.").queue();
-            return;
+    /** metzfam: delete a user's control command (needs Manage Messages; silently skipped otherwise). */
+    static void tidy(MessageReceivedEvent event) {
+        try {
+            if (GuildSettings.of(event.getGuild().getIdLong()).tidy
+                    && event.getGuild().getSelfMember().hasPermission(event.getGuildChannel(), Permission.MESSAGE_MANAGE)) {
+                event.getMessage().delete().queue(null, e -> {});
+            }
+        } catch (Exception ignored) {
         }
-        String title = trackScheduler.getTitle(current.getIdentifier());
-        title = title != null ? title.replace("ytsearch:", "").trim() : current.getInfo().title;
-        EmbedBuilder eb = new EmbedBuilder()
-                .setColor(new Color(0x1db954))
-                .setTitle("🎵 Now Playing")
-                .setDescription("**" + title + "**")
-                .setFooter("!pause  •  !skip  •  !stop  •  !queue");
-        long durationMs = current.getDuration();
-        if (durationMs > 0 && durationMs != Long.MAX_VALUE) {
-            long secs = durationMs / 1000;
-            long h = secs / 3600, m = (secs % 3600) / 60, s = secs % 60;
-            String dur = h > 0 ? String.format("%d:%02d:%02d", h, m, s) : String.format("%d:%02d", m, s);
-            eb.addField("Duration", dur, true);
-        }
-        messageChannel.sendMessageEmbeds(eb.build()).queue();
     }
 
-    private static void handleSkipCommand(Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler) {
-        if (trackScheduler.getPlayer().getPlayingTrack() != null) {
-            trackScheduler.nextTrack();
-            messageChannel.sendMessage(ConfigUtils.skipEmoji + " Skipped.").queue(msg -> msg.suppressEmbeds(true).queue());
+    static String who(MessageReceivedEvent event) {
+        Member m = event.getMember();
+        return m != null ? m.getEffectiveName() : event.getAuthor().getName();
+    }
+
+    /** Show a control result on the live panel, or as a short-lived message when there is no panel. */
+    private static void status(MessageReceivedEvent event, TrackScheduler ts, String text) {
+        tidy(event);
+        GuildMessageChannel ch = event.getChannel().asGuildMessageChannel();
+        QueuePanel panel = QueuePanel.peek(event.getGuild().getIdLong());
+        if (text == null) {
+            PlayerControls.flash(ch, "Nothing is playing right now.");
+        } else if (panel != null) {
+            panel.bindScheduler(ts);
+            panel.setNotice(text);
         } else {
-            messageChannel.sendMessage("Nothing is playing right now.").queue(msg -> msg.suppressEmbeds(true).queue());
+            PlayerControls.flash(ch, text);
         }
     }
 
-    private static void handleStopCommand(Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler, String serverFolder, Spotibot bot, TrackSchedulerRegistry trackSchedulerRegistry, BlockingQueue<Runnable> downloadQueue) {
-        logger.info("Stopping bot and clearing all states...");
+    /** Stop music + clear the queue. The bot stays in the channel (listening) until dismissed or idle. */
+    public static void handleStopCommand(Guild guild, GuildMessageChannel messageChannel, TrackScheduler trackScheduler, String serverFolder, Spotibot bot, TrackSchedulerRegistry trackSchedulerRegistry, BlockingQueue<Runnable> downloadQueue, String who, boolean announce) {
+        logger.info("Stopping playback and clearing the queue...");
 
+        QueuePanel panel = QueuePanel.peek(guild.getIdLong());
+        if (panel != null) panel.reset();
         trackScheduler.clearQueueAndStop();
-        guild.getAudioManager().closeAudioConnection();
         DownloadQueueHandler.clearDownloadsFolder(serverFolder);
 
         if (bot != null && bot.getCurrentDownloadTask() != null && !bot.getCurrentDownloadTask().isDone()) {
@@ -303,80 +408,31 @@ private static void handlePauseCommand(GuildMessageChannel messageChannel, Track
             trackSchedulerRegistry.reset();
         }
 
-        messageChannel.sendMessage(ConfigUtils.stopEmoji + " Stopped playback and reset the bot state. You can now add new songs.").queue(msg -> msg.suppressEmbeds(true).queue());
+        if (panel != null) {
+            panel.bindScheduler(trackSchedulerRegistry != null ? trackSchedulerRegistry.getOrCreate(guild, bot) : trackScheduler);
+            panel.setNotice("Stopped" + (who == null ? "" : " (" + who + ")"));
+        } else if (announce && messageChannel != null) {
+            PlayerControls.flash(messageChannel, "Stopped playback and cleared the queue.");
+        }
     }
 
     static void showQueue(MessageReceivedEvent event, TrackScheduler trackScheduler, int page, Spotibot bot) {
-        LinkedBlockingQueue<AudioTrack> playbackQueue = trackScheduler.getQueue();
-
-        if (bot != null) bot.getQueuePageMap().put(event.getGuild().getIdLong(), page);
-
-        EmbedBuilder eb = buildQueueEmbed(trackScheduler, playbackQueue, page);
-        List<ActionRow> components = buildQueueComponents(playbackQueue.size(), page);
-
-        if (components.isEmpty()) {
-            event.getChannel().sendMessageEmbeds(eb.build()).queue();
-        } else {
-            event.getChannel().sendMessageEmbeds(eb.build()).setComponents(components).queue();
-        }
-    }
-
-    public static EmbedBuilder buildQueueEmbed(TrackScheduler trackScheduler,
-                                                LinkedBlockingQueue<AudioTrack> playbackQueue,
-                                                int page) {
-        EmbedBuilder eb = new EmbedBuilder()
-                .setTitle("🎶 Queue")
-                .setColor(new Color(0x1db954));
-
-        AudioTrack currentTrack = trackScheduler.getCurrentTrack();
-        if (currentTrack != null) {
-            String title = trackScheduler.getTitle(currentTrack.getIdentifier());
-            title = title != null ? title.replace("ytsearch:", "").trim() : "Unknown";
-            eb.appendDescription("🎵 **Now Playing:** " + title + "\n\n");
-        }
-
-        int total = playbackQueue.size();
-        int startIndex = page * ConfigUtils.QUEUE_PAGE_SIZE;
-        int endIndex = Math.min(startIndex + ConfigUtils.QUEUE_PAGE_SIZE, total);
-
-        List<AudioTrack> trackList = new ArrayList<>(playbackQueue);
-        if (trackList.isEmpty()) {
-            eb.appendDescription("_Queue is empty._");
-        } else {
-            for (int i = startIndex; i < endIndex; i++) {
-                String title = trackScheduler.getTitle(trackList.get(i).getIdentifier());
-                title = title != null ? title.replace("ytsearch:", "").trim() : "Unknown";
-                eb.appendDescription("📍 **" + (i + 1) + ".** " + title + "\n");
-            }
-        }
-
-        int totalPages = total == 0 ? 1 : (int) Math.ceil((double) total / ConfigUtils.QUEUE_PAGE_SIZE);
-        eb.setFooter("Page " + (page + 1) + "/" + totalPages + "  •  " + total + " track(s) queued");
-        return eb;
-    }
-
-    public static List<ActionRow> buildQueueComponents(int totalTracks, int page) {
-        if (totalTracks <= ConfigUtils.QUEUE_PAGE_SIZE) return List.of();
-        int endIndex = Math.min((page + 1) * ConfigUtils.QUEUE_PAGE_SIZE, totalTracks);
-        Button prev = Button.secondary(BTN_QUEUE_PREV, "◀ Prev").withDisabled(page == 0);
-        Button next = Button.secondary(BTN_QUEUE_NEXT, "Next ▶").withDisabled(endIndex >= totalTracks);
-        return List.of(ActionRow.of(prev, next));
+        // metzfam: the queue is the single live panel; !queue just brings it to the bottom of the chat
+        QueuePanel.of(event.getGuild().getIdLong()).attach(event.getChannel().asGuildMessageChannel(), trackScheduler, null);
     }
 
     private static String getHelpMessage() {
-        return "**Spotibot Commands**:\n" +
-               "`!play <URL or search term>` - Play a YouTube video, playlist, or Spotify track/playlist.\n" +
-               "`!np` / `!nowplaying` - Show what's currently playing.\n" +
-               "`!pause` - Pause playback.\n" +
-               "`!resume` - Resume playback.\n" +
-               "`!volume <0-100>` - Set or view volume.\n" +
-               "`!skip` - Skip the current track.\n" +
-               "`!stop` - Stop playback and reset the bot.\n" +
-               "`!queue` - Show the current queue.\n" +
-               "`!help` - Show this list of commands.\n" +
-               "`!blackjack` - Join a game of blackjack.\n" +
-               "`!blackjack help` - Show blackjack commands.\n" +
-               "\nNote: Place your `cookies.txt` file in the `config` folder for YouTube authentication.";
+        StringBuilder h = new StringBuilder("**Spotibot**  -  full guide: <" + QueuePanel.GUIDE_URL + ">\n");
+        h.append("`!play <song or link>` (or `/play`) - YouTube/Spotify songs and playlists. `!playnext <song>` puts it next.\n");
+        h.append("The queue message has buttons for pause, skip, stop, leave, -10s/-5s/+5s/+10s, shuffle and repeat.\n");
+        h.append("`!queue` - bring the queue message down  |  `!np` - what's playing  |  `!volume <0-100>`\n");
+        h.append("`!join` / `!leave` - the bot stays in voice until dismissed or idle\n");
+        h.append("`!shuffle`  |  `!repeat off|song|queue`\n");
+        if (StreamTrack.enabled()) h.append("`!radio on|off|now` - keep playing similar songs when the queue ends\n");
+        if (JellyfinClient.enabled()) h.append("`!playlists` / `!playlist <name>` - Jellyfin playlists  |  `!save` - favorite in Jellyfin\n");
+        if (VoiceListener.available()) h.append("`!gaming on|off` - Gaming mode: say \"Spotibot, play <song>\", \"Spotibot, skip\" ...\n");
+        h.append("`!settings` - server settings  |  `!blackjack help` - blackjack");
+        return h.toString();
     }
 
     private static String getBlackjackHelpMessage() {

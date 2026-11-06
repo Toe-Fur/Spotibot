@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spotibot - guide and updates</title>
+<meta name="description" content="Spotibot is a Discord music bot: one live queue message with buttons, voice control (Gaming mode), radio, playlists and slash commands.">
+<style>
+  :root {
+    --bg: #0f1113; --panel: #171a1d; --panel2: #1e2226; --text: #e8eaed; --muted: #9aa0a6;
+    --line: #2a2f34; --accent: #1db954; --accent2: #17a34a; --warn: #f2b84b;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--accent); }
+  code, kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; background: var(--panel2);
+              border: 1px solid var(--line); border-radius: 5px; padding: .05em .35em; }
+  header { border-bottom: 1px solid var(--line); background: linear-gradient(180deg, #13261b 0%, var(--bg) 100%); }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 20px; }
+  .top { display: flex; align-items: center; gap: 14px; padding: 18px 0; }
+  .logo { width: 38px; height: 38px; border-radius: 10px; background: var(--accent); display: grid; place-items: center; }
+  .logo svg { width: 22px; height: 22px; }
+  .brand { font-weight: 700; font-size: 20px; }
+  nav { margin-left: auto; display: flex; gap: 18px; flex-wrap: wrap; }
+  nav a { color: var(--muted); text-decoration: none; font-size: 14px; }
+  nav a:hover { color: var(--text); }
+  .hero { padding: 36px 0 44px; }
+  .hero h1 { font-size: clamp(28px, 4vw, 40px); margin: 0 0 10px; line-height: 1.2; }
+  .hero p { color: var(--muted); max-width: 700px; margin: 0 0 22px; font-size: 17px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 4px 12px; font-size: 13px; color: var(--muted); }
+  main section { padding: 34px 0; border-bottom: 1px solid var(--line); }
+  h2 { font-size: 24px; margin: 0 0 6px; }
+  h3 { font-size: 17px; margin: 22px 0 6px; }
+  .lead { color: var(--muted); margin: 0 0 18px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .card h3 { margin-top: 0; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+  td:first-child { white-space: nowrap; }
+  .note { border-left: 3px solid var(--warn); background: #221d12; padding: 10px 14px; border-radius: 6px; color: #e9dcc1; font-size: 15px; }
+  .ok { border-left-color: var(--accent); background: #12201a; color: #cfe9da; }
+  /* Mock of the Discord panel */
+  .mock { background: #2b2d31; border-radius: 8px; padding: 14px; max-width: 560px; font-size: 14px; }
+  .embed { border-left: 4px solid var(--accent); background: #232428; border-radius: 4px; padding: 10px 14px; }
+  .embed .t { font-weight: 700; margin-bottom: 4px; }
+  .embed .f { color: #b5bac1; font-size: 12px; margin-top: 8px; line-height: 1.5; }
+  .bar { color: #b5bac1; font-family: ui-monospace, monospace; font-size: 12px; }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .b { background: #4e5058; color: #fff; border-radius: 4px; padding: 3px 10px; font-size: 13px; }
+  .b.p { background: #5865f2; } .b.g { background: #248046; } .b.r { background: #da373c; } .b.l { background: #4e5058; text-decoration: underline; }
+  .steps { counter-reset: s; list-style: none; padding: 0; margin: 0; }
+  .steps li { counter-increment: s; position: relative; padding-left: 38px; margin: 10px 0; }
+  .steps li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 26px; height: 26px; border-radius: 50%;
+                      background: var(--panel2); border: 1px solid var(--line); display: grid; place-items: center; font-size: 13px; color: var(--accent); }
+  #changelog .release { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 4px 20px 14px; margin: 14px 0; }
+  #changelog .release h2 { font-size: 20px; margin: 14px 0 4px; }
+  #changelog .release h3 { color: var(--accent); font-size: 14px; text-transform: uppercase; letter-spacing: .05em; }
+  #changelog ul { padding-left: 20px; } #changelog li { margin: 4px 0; }
+  #changelog .older { display: none; } #changelog.all .older { display: block; }
+  .more { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; cursor: pointer; font: inherit; }
+  footer { color: var(--muted); font-size: 14px; padding: 30px 0 50px; }
+  @media (max-width: 640px) { nav { display: none; } td:first-child { white-space: normal; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="top">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#0f1113" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+      </div>
+      <div class="brand">Spotibot</div>
+      <nav>
+        <a href="#start">Start</a><a href="#panel">Buttons</a><a href="#gaming">Gaming mode</a><a href="#radio">Radio</a>
+        <a href="#commands">Commands</a><a href="#selfhost">Self-host</a><a href="#changelog">Updates</a>
+      </nav>
+    </div>
+    <div class="hero">
+      <h1>Music for your Discord, controlled from one message, or by voice.</h1>
+      <p>Spotibot plays songs, YouTube and Spotify links and whole playlists in your voice channel. Everything lives in a single
+        queue message with buttons, and with Gaming mode on you can just say "Spotibot, play ..." without leaving your game.</p>
+      <div class="chips">
+        <span class="chip">One live queue message</span><span class="chip">Buttons for everything</span><span class="chip">Gaming mode (voice)</span>
+        <span class="chip">Radio</span><span class="chip">Spotify and YouTube playlists</span><span class="chip">Slash commands</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+<section id="start">
+  <h2>Getting started</h2>
+  <p class="lead">Three ways to ask for a song. They all do the same thing.</p>
+  <ol class="steps">
+    <li>Join a voice channel.</li>
+    <li>Type <code>/play</code> and start typing a song (suggestions appear as you type), or <code>!play africa toto</code>,
+      or paste a YouTube or Spotify link (songs and playlists both work).</li>
+    <li>The bot joins, and the <b>queue message</b> appears. Use its buttons for everything else.</li>
+  </ol>
+  <div class="note ok" style="margin-top:16px">Tip: <code>!playnext &lt;song&gt;</code> (or <code>/play</code> with <code>next: true</code>)
+    puts a song right after the current one instead of at the end.</div>
+</section>
+
+<section id="panel">
+  <h2>The queue message and its buttons</h2>
+  <p class="lead">Spotibot keeps one message per server and edits it as songs load and play, so the chat doesn't fill up.
+    <code>!queue</code> moves it back to the bottom if it scrolls away.</p>
+  <div class="grid">
+    <div class="mock" aria-label="Example of the queue message">
+      <div class="embed">
+        <div class="t">Now Playing</div>
+        <div><b>Africa - Toto</b></div>
+        <div class="bar">1:23 / 4:55 &nbsp;━━━━○────────</div>
+        <div style="margin-top:8px"><b>Up next</b><br>1. Mr. Brightside - The Killers 3:42<br>2. Dreams - Fleetwood Mac 4:17<br>3. ...</div>
+        <div class="f">Page 1/4 | 18 queued | 2 loading<br>Skipped Yellow (Sam)<br>Gaming mode on: say "Spotibot, play &lt;song&gt;" | leaves after 30 min idle</div>
+      </div>
+      <div class="btns"><span class="b">-10s</span><span class="b">-5s</span><span class="b p">Pause</span><span class="b">+5s</span><span class="b">+10s</span></div>
+      <div class="btns"><span class="b">Skip</span><span class="b">Stop</span><span class="b r">Leave</span><span class="b">◀ Prev</span><span class="b">Next ▶</span></div>
+      <div class="btns"><span class="b g">Gaming mode: on</span><span class="b g">Radio: on</span><span class="b">Shuffle</span><span class="b">Repeat: off</span><span class="b">Save</span></div>
+      <div class="btns"><span class="b l">Guide &amp; updates</span></div>
+    </div>
+    <div>
+      <table>
+        <tr><th>Button</th><th>What it does</th></tr>
+        <tr><td><b>-10s -5s +5s +10s</b></td><td>Jump back or forward in the current song.</td></tr>
+        <tr><td><b>Pause / Resume</b></td><td>One button; it changes label.</td></tr>
+        <tr><td><b>Skip</b></td><td>Next song. If the next one is still loading it starts as soon as it's ready.</td></tr>
+        <tr><td><b>Stop</b></td><td>Clears the music. The bot stays in the channel.</td></tr>
+        <tr><td><b>Leave</b></td><td>Dismisses the bot from the voice channel.</td></tr>
+        <tr><td><b>Prev / Next</b></td><td>Page through the queue, 5 songs per page.</td></tr>
+        <tr><td><b>Gaming mode</b></td><td>Turns voice commands on or off. <a href="#gaming">More below.</a></td></tr>
+        <tr><td><b>Radio</b></td><td>When the queue runs out, keep playing similar songs.</td></tr>
+        <tr><td><b>Shuffle</b></td><td>Shuffles the songs waiting in the queue.</td></tr>
+        <tr><td><b>Repeat</b></td><td>Cycles off, this song, the whole queue.</td></tr>
+        <tr><td><b>Save</b></td><td>Saves the song to your Jellyfin favorites (and library), if this server has Jellyfin set up.</td></tr>
+      </table>
+      <p class="lead" style="margin-top:12px">The footer shows who did what ("Paused (Chris)"). Buttons for features a server
+        hasn't set up are simply not shown.</p>
+    </div>
+  </div>
+</section>
+
+<section id="gaming">
+  <h2>Gaming mode</h2>
+  <p class="lead">Control the music by voice while you play. No alt-tabbing, no typing.</p>
+  <div class="grid">
+    <div class="card"><h3>Turn it on or off</h3><p>Press <b>Gaming mode</b> on the queue message, type <code>!gaming on</code> / <code>!gaming off</code>,
+      or use <code>/gaming</code>. The setting is remembered per server. The bot must be in your voice channel
+      (<code>/join</code> or any <code>/play</code>).</p></div>
+    <div class="card"><h3>How to talk to it</h3><p>Start with <b>"Spotibot"</b>, then the command: "Spotibot, play Africa by Toto".
+      Saying "by &lt;artist&gt;" helps it pick the right song. You can also say "Spotibot", pause, then the command within 8 seconds.
+      What it heard shows up on the queue message.</p></div>
+    <div class="card"><h3>Privacy</h3><p>While Gaming mode is on, what people say in that voice channel is turned into text by a
+      speech server run by whoever hosts this bot (it never goes to an outside company). Audio is processed in memory and not saved,
+      and only lines that start with "Spotibot" are acted on or logged. Let people in the channel know, and turn it off any time.</p></div>
+  </div>
+  <h3>Voice commands</h3>
+  <table>
+    <tr><th>Say "Spotibot, ..."</th><th>Does</th></tr>
+    <tr><td>play <i>song</i> [by <i>artist</i>]</td><td>Add a song. Add "next" at the end to play it next.</td></tr>
+    <tr><td>play my <i>name</i> playlist</td><td>Play one of the server's Jellyfin playlists (if set up).</td></tr>
+    <tr><td>play something like this</td><td>Queue songs similar to the current one, right after it.</td></tr>
+    <tr><td>skip / next</td><td>Next song.</td></tr>
+    <tr><td>pause / resume</td><td>Pause or continue.</td></tr>
+    <tr><td>stop</td><td>Clear the music (the bot stays).</td></tr>
+    <tr><td>shuffle</td><td>Shuffle the queue.</td></tr>
+    <tr><td>repeat / repeat all / stop repeating</td><td>Repeat this song, the queue, or turn repeat off.</td></tr>
+    <tr><td>louder / quieter</td><td>Volume up or down.</td></tr>
+    <tr><td>what's playing</td><td>Shows the song and time on the queue message.</td></tr>
+    <tr><td>save this</td><td>Save the song to Jellyfin favorites (if set up).</td></tr>
+    <tr><td>radio on / radio off</td><td>Turn radio autoplay on or off.</td></tr>
+    <tr><td>gaming mode off / stop listening</td><td>Turn voice commands off.</td></tr>
+    <tr><td>leave / go away / bye</td><td>Dismiss the bot.</td></tr>
+  </table>
+  <div class="note" style="margin-top:16px">Not hearing you? Check that the bot isn't server-muted for you, that Gaming mode shows "on",
+    and that you start with "Spotibot". Background music picked up by your mic can make it harder to hear you; push-to-talk helps.</div>
+</section>
+
+<section id="radio">
+  <h2>Radio, playlists and staying in the channel</h2>
+  <div class="grid">
+    <div class="card"><h3>Radio</h3><p>With Radio on, when the last song ends the bot keeps going with similar songs
+      (marked "(radio)" in the queue). <code>!radio now</code> or "Spotibot, play something like this" queues songs like the current one
+      straight away. <code>!radio off</code> to stop.</p></div>
+    <div class="card"><h3>Playlists</h3><p>Paste a Spotify or YouTube playlist link into <code>/play</code>. If the server has Jellyfin set up,
+      <code>!playlists</code> lists its playlists and <code>/playlist</code> plays one (with autocomplete).</p></div>
+    <div class="card"><h3>Staying in the channel</h3><p>The bot stays after the queue ends, so you can keep asking for songs.
+      It leaves when someone presses <b>Leave</b> (or <code>!leave</code>, "Spotibot, leave"), after 30 minutes with nothing playing,
+      or after 5 minutes alone. Paused counts as nothing playing.</p></div>
+  </div>
+</section>
+
+<section id="commands">
+  <h2>All commands</h2>
+  <p class="lead">Slash commands reply only to you. <code>!</code> commands work too; control commands report on the queue message
+    and the command itself is tidied away (if the bot has Manage Messages).</p>
+  <table>
+    <tr><th>Command</th><th>Does</th></tr>
+    <tr><td><code>/play</code> <code>!play</code></td><td>Song, YouTube or Spotify link, or playlist link. <code>!playnext</code> plays it next.</td></tr>
+    <tr><td><code>/join</code> <code>!join</code></td><td>Join your voice channel and wait (handy for Gaming mode).</td></tr>
+    <tr><td><code>/leave</code> <code>!leave</code></td><td>Dismiss the bot.</td></tr>
+    <tr><td><code>/skip /pause /resume /stop</code></td><td>Same as the buttons. <code>!skip !pause !resume !stop</code> too.</td></tr>
+    <tr><td><code>/queue</code> <code>!queue</code></td><td>Move the queue message to the bottom of the chat.</td></tr>
+    <tr><td><code>/np</code> <code>!np</code></td><td>What's playing and how far in.</td></tr>
+    <tr><td><code>/shuffle</code> <code>/repeat</code></td><td>Shuffle; repeat off, song or queue (<code>!repeat song</code>).</td></tr>
+    <tr><td><code>/volume</code> <code>!volume 50</code></td><td>Volume 0-100.</td></tr>
+    <tr><td><code>/radio</code> <code>!radio on|off|now</code></td><td>Radio autoplay.</td></tr>
+    <tr><td><code>/gaming</code> <code>!gaming on|off</code></td><td>Gaming mode (voice commands).</td></tr>
+    <tr><td><code>/playlist</code> <code>!playlists</code></td><td>Jellyfin playlists.</td></tr>
+    <tr><td><code>/save</code> <code>!save</code></td><td>Save the song to Jellyfin.</td></tr>
+    <tr><td><code>/settings</code> <code>!settings</code></td><td>Server settings. Managers can change the idle timeout, tidy commands, Gaming mode and Radio defaults:
+      <code>!settings idle 45</code>, <code>!settings tidy off</code>.</td></tr>
+    <tr><td><code>!blackjack</code></td><td>Yes, there is blackjack. <code>!blackjack help</code>.</td></tr>
+  </table>
+</section>
+
+<section id="selfhost">
+  <h2>Running your own Spotibot</h2>
+  <p class="lead">The bot works on its own. The extras are optional services you can add later. Code and setup:
+    <a href="https://github.com/Toe-Fur/Spotibot">github.com/Toe-Fur/Spotibot</a>.</p>
+  <table>
+    <tr><th>Mode</th><th>You run</th><th>You get</th></tr>
+    <tr><td><b>Classic</b> (default)</td><td>Just the bot (<code>docker-compose.example.yml</code>)</td>
+      <td>Everything except Radio, Gaming mode and Jellyfin. Each song is downloaded with yt-dlp before it plays.</td></tr>
+    <tr><td><b>Streaming</b></td><td>+ ytmusic-stream-server and bgutil-pot</td>
+      <td>Songs start in about 5 s (instantly when cached), the next songs pre-load, Radio, suggestions in <code>/play</code>.</td></tr>
+    <tr><td><b>Gaming mode</b></td><td>+ spotibot-stt</td><td>Voice commands, speech-to-text on your own machine.</td></tr>
+    <tr><td><b>Jellyfin</b></td><td>Your Jellyfin server + API key</td><td>Playlists and the Save button.</td></tr>
+  </table>
+  <p class="lead" style="margin-top:12px">All of it in one file: <code>docker-compose.streaming.example.yml</code>. See
+    <a href="https://github.com/Toe-Fur/Spotibot/tree/main/companion">companion/README.md</a> for details. YouTube needs a signed-in
+    session from most servers: put an exported <code>cookies.txt</code> (youtube.com and google.com cookies) in <code>config/</code>.</p>
+</section>
+
+<section id="changelog">
+  <h2>Updates</h2>
+  <p class="lead">What changed in each version. Loaded from <code>CHANGELOG.md</code>, so this is always current.</p>
+  <div id="log"><p class="lead">Loading...</p></div>
+  <button class="more" id="more" hidden>Show older versions</button>
+</section>
+
+</main>
+
+<footer class="wrap">Spotibot is open source. <a href="https://github.com/Toe-Fur/Spotibot">Source on GitHub</a> |
+  <a href="#changelog">Changelog</a></footer>
+
+<script>
+// Tiny Markdown renderer for CHANGELOG.md: headings, lists, bold, inline code, links, rules, paragraphs.
+function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function inline(s) {
+  return esc(s)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" rel="noopener">$1</a>');
+}
+function render(md) {
+  const lines = md.replace(/\r/g, "").split("\n");
+  let html = "", list = false, para = [];
+  const flushPara = () => { if (para.length) { html += "<p>" + inline(para.join(" ")) + "</p>"; para = []; } };
+  const closeList = () => { if (list) { html += "</ul>"; list = false; } };
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    let m;
+    if (/^# /.test(line)) { continue; }                                  // page title already on the page
+    if (/^---+$/.test(line.trim())) { flushPara(); closeList(); continue; }
+    if ((m = line.match(/^## (.*)/))) { flushPara(); closeList(); html += "\u0000" + "<h2>" + inline(m[1]) + "</h2>"; continue; }
+    if ((m = line.match(/^### (.*)/))) { flushPara(); closeList(); html += "<h3>" + inline(m[1]) + "</h3>"; continue; }
+    if ((m = line.match(/^\s*[-*] (.*)/))) { flushPara(); if (!list) { html += "<ul>"; list = true; } html += "<li>" + inline(m[1]) + "</li>"; continue; }
+    if (/^\s{2,}\S/.test(line) && list) { html = html.replace(/<\/li>$/, " " + inline(line.trim()) + "</li>"); continue; }
+    if (!line.trim()) { flushPara(); closeList(); continue; }
+    if (/^All notable changes/.test(line)) continue;
+    para.push(line.trim());
+  }
+  flushPara(); closeList();
+  const parts = html.split("\u0000").filter(p => p.trim());
+  return parts.map((p, i) => '<div class="release' + (i >= 2 ? " older" : "") + '">' + p + "</div>").join("");
+}
+async function load() {
+  const sources = ["CHANGELOG.md", "https://raw.githubusercontent.com/Toe-Fur/Spotibot/main/CHANGELOG.md"];
+  for (const src of sources) {
+    try {
+      const r = await fetch(src, { cache: "no-cache" });
+      if (!r.ok) continue;
+      const out = render(await r.text());
+      document.getElementById("log").innerHTML = out;
+      if (document.querySelectorAll("#changelog .older").length) {
+        const b = document.getElementById("more");
+        b.hidden = false;
+        b.onclick = () => { document.getElementById("changelog").classList.toggle("all");
+          b.textContent = document.getElementById("changelog").classList.contains("all") ? "Hide older versions" : "Show older versions"; };
+      }
+      return;
+    } catch (e) { /* try next */ }
+  }
+  document.getElementById("log").innerHTML = '<p class="lead">Could not load the changelog. See <a href="https://github.com/Toe-Fur/Spotibot/blob/main/CHANGELOG.md">CHANGELOG.md on GitHub</a>.</p>';
+}
+load();
+</script>
+</body>
+</html>

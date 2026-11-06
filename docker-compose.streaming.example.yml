@@ -1,0 +1,54 @@
+# Spotibot with every optional feature: streaming mode, radio, gaming mode (voice) - see companion/README.md
+# Copy to docker-compose.yml, put your bot token in .env (BOT_TOKEN=...), and your YouTube cookies in ./config/cookies.txt
+services:
+  spotibot:
+    build: .
+    # image: ghcr.io/toe-fur/spotibot:beta
+    container_name: spotibot
+    restart: unless-stopped
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      STATUS: ${STATUS:-Streaming tunes}
+      DEFAULT_VOLUME: ${DEFAULT_VOLUME:-75}
+      TZ: America/Los_Angeles
+      STREAM_SERVER_URL: http://ytmusic-stream-server:8077
+      STT_URL: http://spotibot-stt:8078
+      # Optional Jellyfin playlists + Save button:
+      # JELLYFIN_URL: http://jellyfin:8096
+      # JELLYFIN_API_KEY: ${JELLYFIN_API_KEY}
+      # JELLYFIN_USER: yourname
+      # IDLE_TIMEOUT_MIN: "30"      # leave after this long with nothing playing
+      # ALONE_TIMEOUT_MIN: "5"      # leave after this long alone in the channel
+      # SPOTIBOT_GUIDE_URL: https://your.site/   # "Guide & updates" button (default: GitHub README)
+    volumes:
+      - ./config:/app/config:rw
+    depends_on: [ytmusic-stream-server, spotibot-stt]
+
+  ytmusic-stream-server:
+    build: ./companion/ytmusic-stream-server
+    container_name: ytmusic-stream-server
+    restart: unless-stopped
+    environment:
+      CACHE_DIR: /cache
+      HOME: /data
+    volumes:
+      - ./config/cookies.txt:/cookies-src/cookies.txt:ro
+      - ./stream-cache:/cache
+      - ./stream-data:/data
+    depends_on: [bgutil-pot]
+
+  bgutil-pot:
+    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    container_name: bgutil-pot
+    restart: unless-stopped
+
+  spotibot-stt:
+    build: ./companion/spotibot-stt
+    container_name: spotibot-stt
+    restart: unless-stopped
+    environment:
+      STT_MODEL: base.en
+      STT_THREADS: "2"
+      HF_HUB_OFFLINE: "1"
+    cpus: 2
+    mem_limit: 1g

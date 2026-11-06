@@ -79,6 +79,7 @@ public class Spotibot extends ListenerAdapter {
         AudioSourceManagers.registerRemoteSources(playerManager);
         AudioSourceManagers.registerLocalSource(playerManager);
         trackSchedulerRegistry = new TrackSchedulerRegistry(playerManager);
+        VoiceSession.init(this);
         startDownloadQueueProcessor();
     }
 
@@ -90,31 +91,86 @@ public class Spotibot extends ListenerAdapter {
     @Override
     public void onButtonInteraction(ButtonInteractionEvent event) {
         String id = event.getComponentId();
-        if (!id.equals(CommandHandler.BTN_QUEUE_PREV) && !id.equals(CommandHandler.BTN_QUEUE_NEXT)) return;
+        boolean paging = id.equals(CommandHandler.BTN_QUEUE_PREV) || id.equals(CommandHandler.BTN_QUEUE_NEXT);
+        if (!paging && !id.startsWith(PlayerControls.BTN_PREFIX)) return;
 
         Guild guild = event.getGuild();
         if (guild == null) return;
 
-        TrackScheduler scheduler = trackSchedulerRegistry.get(guild);
-        if (scheduler == null) {
-            event.reply("No active player.").setEphemeral(true).queue();
+        TrackScheduler scheduler = trackSchedulerRegistry.getOrCreate(guild, this);
+        String who = event.getMember() != null ? event.getMember().getEffectiveName() : event.getUser().getName();
+
+        // metzfam: Stop needs to cancel downloads (can block briefly), so acknowledge first.
+        if (id.equals(PlayerControls.BTN_LEAVE)) {
+            event.deferEdit().queue();
+            VoiceSession.leave(guild, "dismissed by " + who);
+            return;
+        }
+        if (id.equals(PlayerControls.BTN_STOP)) {
+            event.deferEdit().queue();
+            CommandHandler.handleStopCommand(guild, event.getGuildChannel(), scheduler, PlayerControls.serverFolder(guild),
+                    this, trackSchedulerRegistry, downloadQueue, who, true);
             return;
         }
 
-        int page = queuePageMap.getOrDefault(guild.getIdLong(), 0);
-        if (id.equals(CommandHandler.BTN_QUEUE_NEXT)) page++;
-        else page = Math.max(0, page - 1);
-        queuePageMap.put(guild.getIdLong(), page);
-
-        java.util.concurrent.LinkedBlockingQueue<AudioTrack> playbackQueue = scheduler.getQueue();
-        EmbedBuilder eb = CommandHandler.buildQueueEmbed(scheduler, playbackQueue, page);
-        java.util.List<ActionRow> components = CommandHandler.buildQueueComponents(playbackQueue.size(), page);
-
-        if (components.isEmpty()) {
-            event.editMessageEmbeds(eb.build()).setComponents().queue();
-        } else {
-            event.editMessageEmbeds(eb.build()).setComponents(components).queue();
+        QueuePanel panel = QueuePanel.of(guild.getIdLong());
+        panel.bindScheduler(scheduler);
+        String result = "";
+        if (paging) {
+            panel.setPage(id.equals(CommandHandler.BTN_QUEUE_NEXT) ? panel.page() + 1 : panel.page() - 1);
+        } else if (id.equals(PlayerControls.BTN_PAUSE)) {
+            result = PlayerControls.togglePause(scheduler, who);
+        } else if (id.equals(PlayerControls.BTN_SKIP)) {
+            result = PlayerControls.skip(scheduler, who);
+        } else if (id.equals(PlayerControls.BTN_GAMING)) {
+            result = PlayerControls.gaming(guild, null, who);
+        } else if (id.equals(PlayerControls.BTN_RADIO)) {
+            result = PlayerControls.radio(scheduler, null, who);
+        } else if (id.equals(PlayerControls.BTN_SHUFFLE)) {
+            result = PlayerControls.shuffle(scheduler, who);
+        } else if (id.equals(PlayerControls.BTN_REPEAT)) {
+            result = PlayerControls.repeat(scheduler, null, who);
+        } else if (id.equals(PlayerControls.BTN_SAVE)) {
+            // Jellyfin lookup can take a moment: acknowledge, then edit the panel when done
+            event.deferEdit().queue();
+            String r = PlayerControls.save(scheduler, who);
+            panel.setNotice(r == null ? "Nothing is playing right now." : r);
+            return;
+        } else if (id.startsWith(PlayerControls.BTN_SEEK)) {
+            try {
+                result = PlayerControls.seek(scheduler, Long.parseLong(id.substring(PlayerControls.BTN_SEEK.length())), who);
+            } catch (NumberFormatException e) {
+                result = "";
+            }
         }
+        if (result == null) result = "Nothing is playing right now.";
+        if (!result.isEmpty()) panel.setNoticeQuiet(result);
+        event.editMessageEmbeds(panel.render().build()).setComponents(panel.components()).queue(null, e -> {});
+    }
+
+    @Override
+    public void onGuildReady(net.dv8tion.jda.api.events.guild.GuildReadyEvent event) {
+        SlashCommands.register(event.getGuild());
+    }
+
+    @Override
+    public void onGuildJoin(net.dv8tion.jda.api.events.guild.GuildJoinEvent event) {
+        SlashCommands.register(event.getGuild());
+    }
+
+    @Override
+    public void onSlashCommandInteraction(net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent event) {
+        try {
+            SlashCommands.handle(event, this);
+        } catch (Exception e) {
+            logger.error("Slash command failed", e);
+            if (!event.isAcknowledged()) event.reply("Something went wrong: " + e.getMessage()).setEphemeral(true).queue();
+        }
+    }
+
+    @Override
+    public void onCommandAutoCompleteInteraction(net.dv8tion.jda.api.events.interaction.command.CommandAutoCompleteInteractionEvent event) {
+        SlashCommands.autocomplete(event);
     }
 
     @Override
@@ -163,6 +219,10 @@ public class Spotibot extends ListenerAdapter {
 
     public void setDownloadExecutor(ExecutorService downloadExecutor) {
         this.downloadExecutor = downloadExecutor;
+    }
+
+    public TrackSchedulerRegistry getTrackSchedulerRegistry() {
+        return trackSchedulerRegistry;
     }
 
     public BlockingQueue<Runnable> getDownloadQueue() {
