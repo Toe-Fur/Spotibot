@@ -136,7 +136,7 @@ public class CommandHandler {
                 switch (parts[1]) {
                     case "idle" -> {
                         try {
-                            gs.idleMinutes = Math.max(1, Math.min(240, Integer.parseInt(parts[2])));
+                            gs.idleMinutes = parts[2].equals("never") ? 0 : Math.max(0, Math.min(240, Integer.parseInt(parts[2])));
                         } catch (NumberFormatException ignored) {
                         }
                     }
@@ -150,7 +150,7 @@ public class CommandHandler {
                 status(event, trackScheduler, "Only server managers can change settings");
                 return;
             }
-            status(event, trackScheduler, gs.describe() + "  (change: !settings idle <min> | tidy on/off | gaming on/off | radio on/off)");
+            status(event, trackScheduler, gs.describe() + "  (change: !settings idle <min|never> | tidy on/off | gaming on/off | radio on/off)");
 
         } else if (message.equalsIgnoreCase("!pause") || message.equalsIgnoreCase("!resume")) {
             // metzfam: control commands report on the live panel (and the command message is tidied away)

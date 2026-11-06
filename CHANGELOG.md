@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Idle timer on the queue message** — a "Leave after idle" dropdown sets how long the bot waits in the voice channel with
+  nothing playing before it leaves: 5, 10, 15, 30, 45 or 60 minutes, 1.5 or 2 hours, or never (it still leaves when
+  everyone else has gone). Handy with Gaming mode, where the bot sits in the channel waiting for "Spotibot, ...".
+  Saved per server; also `!settings idle <minutes|never>` and `/settings idle_minutes` (0 = never).
+
+### Fixed
+- Spotify credentials are read from the config folder (`CONFIG_DIR`) instead of a path relative to the working directory.
+
+---
+
 ## [2.0] — 2026-11-06
 
 The big one: one live queue message with buttons, voice control (Gaming mode), radio, Jellyfin playlists,

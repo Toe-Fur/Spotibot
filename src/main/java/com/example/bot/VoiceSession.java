@@ -103,9 +103,10 @@ public final class VoiceSession {
 
     public String statusLine() {
         int idle = GuildSettings.of(guild.getIdLong()).idleMinutes;
-        if (!VoiceListener.available()) return "Leaves after " + idle + " min idle";
+        String leave = idle > 0 ? "leaves after " + GuildSettings.idleLabel(idle) + " idle" : "stays until dismissed or everyone leaves";
+        if (!VoiceListener.available()) return Character.toUpperCase(leave.charAt(0)) + leave.substring(1);
         String l = listener.isEnabled() ? "Gaming mode on: say \"Spotibot, play <song>\"" : "Gaming mode off";
-        return l + "  |  leaves after " + idle + " min idle";
+        return l + "  |  " + leave;
     }
 
     private static void checkAll() {
@@ -136,7 +137,7 @@ public final class VoiceSession {
             return;
         }
         int idle = GuildSettings.of(guild.getIdLong()).idleMinutes;
-        if (now - lastActive > idle * 60_000L) {
+        if (idle > 0 && now - lastActive > idle * 60_000L) {
             leave(guild, "nothing played for " + idle + " minutes");
         }
     }

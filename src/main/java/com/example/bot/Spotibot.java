@@ -149,6 +149,24 @@ public class Spotibot extends ListenerAdapter {
     }
 
     @Override
+    public void onStringSelectInteraction(net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent event) {
+        if (!event.getComponentId().equals(PlayerControls.MENU_IDLE) || event.getGuild() == null) return;
+        Guild guild = event.getGuild();
+        String who = event.getMember() != null ? event.getMember().getEffectiveName() : event.getUser().getName();
+        int minutes;
+        try {
+            minutes = Integer.parseInt(event.getValues().get(0));
+        } catch (Exception e) {
+            event.deferEdit().queue();
+            return;
+        }
+        QueuePanel panel = QueuePanel.of(guild.getIdLong());
+        panel.bindScheduler(trackSchedulerRegistry.getOrCreate(guild, this));
+        panel.setNoticeQuiet(PlayerControls.setIdle(guild, minutes, who));
+        event.editMessageEmbeds(panel.render().build()).setComponents(panel.components()).queue(null, e -> {});
+    }
+
+    @Override
     public void onGuildReady(net.dv8tion.jda.api.events.guild.GuildReadyEvent event) {
         SlashCommands.register(event.getGuild());
     }

@@ -45,7 +45,7 @@ public final class GuildSettings {
                 GuildSettings s = new GuildSettings();
                 s.gamingMode = o.optBoolean("gamingMode", s.gamingMode) && VoiceListener.available();
                 s.radio = o.optBoolean("radio", s.radio) && StreamTrack.enabled();
-                s.idleMinutes = Math.max(1, Math.min(240, o.optInt("idleMinutes", s.idleMinutes)));
+                s.idleMinutes = Math.max(0, Math.min(240, o.optInt("idleMinutes", s.idleMinutes))); // 0 = never
                 s.tidy = o.optBoolean("tidy", s.tidy);
                 ALL.put(Long.parseLong(k), s);
             }
@@ -70,6 +70,15 @@ public final class GuildSettings {
 
     public String describe() {
         return "Gaming mode " + (gamingMode ? "on" : "off") + "  |  Radio " + (radio ? "on" : "off")
-                + "  |  Leave after " + idleMinutes + " min idle  |  Tidy commands " + (tidy ? "on" : "off");
+                + "  |  Leave when idle: " + idleLabel(idleMinutes) + "  |  Tidy commands " + (tidy ? "on" : "off");
+    }
+
+    /** Choices for the panel's idle timer dropdown (minutes; 0 = never). */
+    public static final int[] IDLE_CHOICES = {5, 10, 15, 30, 45, 60, 90, 120, 0};
+
+    public static String idleLabel(int min) {
+        if (min <= 0) return "never";
+        if (min < 60) return min + " min";
+        return min % 60 == 0 ? (min / 60) + (min == 60 ? " hour" : " hours") : String.format("%.1f hours", min / 60.0);
     }
 }

@@ -22,6 +22,7 @@ public final class PlayerControls {
     public static final String BTN_SHUFFLE = "sb:shuffle";
     public static final String BTN_REPEAT = "sb:repeat";
     public static final String BTN_SAVE = "sb:save";
+    public static final String MENU_IDLE = "sb:idle";
     public static final String BTN_SEEK = "sb:seek:"; // + signed milliseconds
 
     private PlayerControls() {
@@ -136,6 +137,16 @@ public final class PlayerControls {
         if (title == null || title.isBlank()) title = ts.getTitle(cur.getIdentifier());
         String saved = JellyfinClient.favorite(artist, title);
         return saved == null ? "Couldn't find " + title + " in Jellyfin" : "Saved " + saved + " to Jellyfin favorites" + by(who);
+    }
+
+    /** Idle timer from the panel dropdown (minutes, 0 = never). */
+    public static String setIdle(Guild guild, int minutes, String who) {
+        GuildSettings gs = GuildSettings.of(guild.getIdLong());
+        gs.idleMinutes = Math.max(0, Math.min(240, minutes));
+        GuildSettings.save();
+        VoiceSession.get(guild).touch(); // the new timer counts from now
+        return (gs.idleMinutes > 0 ? "Leaves after " + GuildSettings.idleLabel(gs.idleMinutes) + " with nothing playing"
+                : "Won't leave on idle (only when dismissed or everyone leaves)") + by(who);
     }
 
     public static String nowPlaying(TrackScheduler ts) {

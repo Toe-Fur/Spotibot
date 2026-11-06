@@ -61,7 +61,7 @@ public final class SlashCommands {
             c.add(Commands.slash("save", "Save the current song to your Jellyfin favorites (downloads it)"));
         }
         c.add(Commands.slash("settings", "Server settings for Spotibot")
-                .addOptions(new OptionData(OptionType.INTEGER, "idle_minutes", "Leave after this many idle minutes", false).setRequiredRange(1, 240),
+                .addOptions(new OptionData(OptionType.INTEGER, "idle_minutes", "Leave after this many idle minutes (0 = never)", false).setRequiredRange(0, 240),
                         new OptionData(OptionType.BOOLEAN, "tidy", "Delete typed control commands", false))
                 .setDefaultPermissions(DefaultMemberPermissions.enabledFor(Permission.MANAGE_SERVER)));
         c.add(Commands.slash("help", "How to use Spotibot"));

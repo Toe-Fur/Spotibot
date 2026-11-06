@@ -4,6 +4,7 @@ import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.components.buttons.Button;
+import net.dv8tion.jda.api.components.selections.StringSelectMenu;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
@@ -271,6 +272,19 @@ public final class QueuePanel {
             r3.add(rp == TrackScheduler.Repeat.OFF ? Button.secondary(PlayerControls.BTN_REPEAT, rl) : Button.success(PlayerControls.BTN_REPEAT, rl));
             if (JellyfinClient.enabled()) r3.add(Button.secondary(PlayerControls.BTN_SAVE, "Save").withDisabled(cur == null));
             rows.add(ActionRow.of(r3));
+
+            // Row 4: idle timer (how long the bot waits in the channel with nothing playing before it leaves)
+            int cur0 = gs.idleMinutes;
+            StringSelectMenu.Builder menu = StringSelectMenu.create(PlayerControls.MENU_IDLE).setPlaceholder("Leave after idle");
+            for (int m : GuildSettings.IDLE_CHOICES) {
+                String label = m > 0 ? "Leave after " + GuildSettings.idleLabel(m) + " idle" : "Never leave on idle (only when dismissed or alone)";
+                menu.addOption(label, String.valueOf(m));
+            }
+            if (java.util.Arrays.stream(GuildSettings.IDLE_CHOICES).noneMatch(m -> m == cur0)) {
+                menu.addOption("Leave after " + GuildSettings.idleLabel(cur0) + " idle", String.valueOf(cur0));
+            }
+            menu.setDefaultValues(String.valueOf(cur0));
+            rows.add(ActionRow.of(menu.build()));
         }
         // Row 4: guide + changelog
         rows.add(ActionRow.of(Button.link(GUIDE_URL, "Guide & updates")));

@@ -123,6 +123,7 @@
       <div class="btns"><span class="b">-10s</span><span class="b">-5s</span><span class="b p">Pause</span><span class="b">+5s</span><span class="b">+10s</span></div>
       <div class="btns"><span class="b">Skip</span><span class="b">Stop</span><span class="b r">Leave</span><span class="b">◀ Prev</span><span class="b">Next ▶</span></div>
       <div class="btns"><span class="b g">Gaming mode: on</span><span class="b g">Radio: on</span><span class="b">Shuffle</span><span class="b">Repeat: off</span><span class="b">Save</span></div>
+      <div class="btns"><span class="b" style="flex:1;background:#1e1f22;border:1px solid #3f4147">Leave after 30 min idle &#9662;</span></div>
       <div class="btns"><span class="b l">Guide &amp; updates</span></div>
     </div>
     <div>
@@ -139,6 +140,8 @@
         <tr><td><b>Shuffle</b></td><td>Shuffles the songs waiting in the queue.</td></tr>
         <tr><td><b>Repeat</b></td><td>Cycles off, this song, the whole queue.</td></tr>
         <tr><td><b>Save</b></td><td>Saves the song to your Jellyfin favorites (and library), if this server has Jellyfin set up.</td></tr>
+        <tr><td><b>Leave after idle</b></td><td>Dropdown: how long the bot waits in the channel with nothing playing before it leaves
+          (5 min to 2 hours, or never). Set it long while gaming so it's there when you say "Spotibot, ...".</td></tr>
       </table>
       <p class="lead" style="margin-top:12px">The footer shows who did what ("Paused (Chris)"). Buttons for features a server
         hasn't set up are simply not shown.</p>
@@ -191,7 +194,8 @@
     <div class="card"><h3>Playlists</h3><p>Paste a Spotify or YouTube playlist link into <code>/play</code>. If the server has Jellyfin set up,
       <code>!playlists</code> lists its playlists and <code>/playlist</code> plays one (with autocomplete).</p></div>
     <div class="card"><h3>Staying in the channel</h3><p>The bot stays after the queue ends, so you can keep asking for songs.
-      It leaves when someone presses <b>Leave</b> (or <code>!leave</code>, "Spotibot, leave"), after 30 minutes with nothing playing,
+      It leaves when someone presses <b>Leave</b> (or <code>!leave</code>, "Spotibot, leave"), after the idle timer runs out
+      (30 minutes with nothing playing unless you change it with the <b>Leave after idle</b> dropdown; "never" is an option),
       or after 5 minutes alone. Paused counts as nothing playing.</p></div>
   </div>
 </section>

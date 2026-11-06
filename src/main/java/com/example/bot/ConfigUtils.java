@@ -12,9 +12,10 @@ import java.io.IOException;
 public class ConfigUtils {
     private static final Logger logger = LoggerFactory.getLogger(ConfigUtils.class);
 
-    // Use CONFIG_DIR if set, otherwise default to /app/config/ (Docker friendly)
-    public static final String CONFIG_FOLDER =
-            ensureTrailingSlash(System.getenv().getOrDefault("CONFIG_DIR", "/app/config/"));
+    // CONFIG_DIR if set; the desktop app (installer) uses the user's app-data folder; otherwise /app/config/ (Docker)
+    public static final String CONFIG_FOLDER = ensureTrailingSlash(
+            System.getenv("CONFIG_DIR") != null ? System.getenv("CONFIG_DIR")
+                    : DesktopMode.enabled() ? DesktopMode.defaultConfigDir() : "/app/config/");
 
     public static final String CONFIG_FILE_PATH = CONFIG_FOLDER + "config.json";
     public static final String COOKIE_FILE_PATH = CONFIG_FOLDER + "cookies.txt";

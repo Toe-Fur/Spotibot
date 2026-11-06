@@ -10,7 +10,7 @@ import org.json.JSONArray;
 
 public class SpotifyUtils {
     private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(SpotifyUtils.class);
-    private static final String CONFIG_PATH = "config/spotifyconfig.json";
+    private static final String CONFIG_PATH = ConfigUtils.CONFIG_FOLDER + "spotifyconfig.json";
     private static final MediaType FORM = MediaType.get("application/x-www-form-urlencoded");
     private static final OkHttpClient HTTP = new OkHttpClient();
     private static final ObjectMapper MAPPER = new ObjectMapper();
