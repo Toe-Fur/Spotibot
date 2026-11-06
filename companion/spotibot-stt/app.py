@@ -43,5 +43,9 @@ async def transcribe(request: Request, mode: str = "fast"):
         segs, _ = models.get(mode, models["fast"]).transcribe(audio, language="en", beam_size=1, best_of=1, temperature=0.0,
                                    condition_on_previous_text=False, initial_prompt=PROMPT,
                                    without_timestamps=True, vad_filter=False)
-        text = " ".join(s.text.strip() for s in segs if s.no_speech_prob < 0.8).strip()
-    return {"text": text, "ms": int((time.time() - t0) * 1000)}
+        segs = [s for s in segs if s.no_speech_prob < 0.8]
+        text = " ".join(s.text.strip() for s in segs).strip()
+        # confidence: worst segment's average log-probability (closer to 0 = surer); callers drop low-confidence commands
+        logprob = min((s.avg_logprob for s in segs), default=-9.0)
+        no_speech = max((s.no_speech_prob for s in segs), default=1.0)
+    return {"text": text, "ms": int((time.time() - t0) * 1000), "logprob": round(logprob, 3), "no_speech": round(no_speech, 3)}

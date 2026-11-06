@@ -45,7 +45,12 @@ public final class VoiceListener implements AudioReceiveHandler {
     private static final int MIN_BYTES = BYTES_PER_SEC / 2;       // ignore < 0.5 s
     private static final int SEND_BYTES = BYTES_PER_SEC * 7;      // commands fit in the first 7 s
     private static final int MAX_BYTES = BYTES_PER_SEC * 12;      // force a cut for non-stop talkers
-    private static final long ARM_MS = 8000;                      // "Spotibot" ... (pause) ... "play X"
+    private static final long ARM_MS = 5000;                      // "Spotibot" ... (pause) ... "play X"
+    /** Whisper confidence gates: worst segment avg log-prob (0 = certain) and no-speech probability. */
+    private static final double MIN_LOGPROB = envDouble("VOICE_MIN_LOGPROB", -0.8);
+    private static final double MAX_NO_SPEECH = 0.6;
+    /** Words allowed before the wake word ("oh Spotibot", "hey Spotibot"); anything else = talking ABOUT the bot. */
+    private static final java.util.Set<String> FILLERS = java.util.Set.of("oh", "hey", "ok", "okay", "yo", "um", "uh", "so", "alright", "and", "hi");
 
     private static final Pattern WAKE = Pattern.compile(
             "(?i)\\b(?:hey\\s+|ok(?:ay)?\\s+)?(?:spo(?:t|tt|d|dd)?(?:i|y|ie|ee|a|e)?\\s?(?:a\\s|the\\s|it\\s)?bots?|spotify\\s?bot|potty\\s?bot|spot\\s?bot)\\b[\\s,.!?]*(.*)");
@@ -152,6 +157,7 @@ public final class VoiceListener implements AudioReceiveHandler {
 
     private void transcribe(long userId, byte[] audio) {
         String text;
+        double logprob, noSpeech;
         try {
             HttpRequest req = HttpRequest.newBuilder(URI.create(STT_URL))
                     .header("Content-Type", "application/octet-stream")
@@ -159,39 +165,74 @@ public final class VoiceListener implements AudioReceiveHandler {
                     .POST(HttpRequest.BodyPublishers.ofByteArray(audio)).build();
             HttpResponse<String> r = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
             if (r.statusCode() != 200) return;
-            text = new JSONObject(r.body()).optString("text", "").trim();
+            JSONObject j = new JSONObject(r.body());
+            text = j.optString("text", "").trim();
+            logprob = j.optDouble("logprob", 0.0);
+            noSpeech = j.optDouble("no_speech", 0.0);
         } catch (Exception e) {
             logger.warn("STT failed: {}", e.toString());
             return;
         }
         if (text.isEmpty()) return;
         try {
-            handleText(userId, text);
+            handleText(userId, text, logprob, noSpeech);
         } catch (Exception e) {
             logger.warn("voice command failed: {}", e.toString());
         }
     }
 
-    private void handleText(long userId, String text) {
+    private void handleText(long userId, String text, double logprob, double noSpeech) {
         String clean = text.replaceAll("[^\\p{L}\\p{N}'&\\s,]", " ").replaceAll("\\s+", " ").trim();
         String cmd;
+        boolean armed = false;
         Matcher w = WAKE.matcher(clean);
         long now = System.currentTimeMillis();
-        if (w.find()) {
+        if (w.find() && wakeAtStart(clean, w.start())) {
+            if (logprob < MIN_LOGPROB || noSpeech > MAX_NO_SPEECH) {
+                logger.info("[VOICE] ignored low-confidence ({}, no_speech {}): {}", logprob, noSpeech, text);
+                return;
+            }
             cmd = w.group(1).replaceAll("^[\\s,]+|[\\s,]+$", "");
-            if (cmd.isEmpty()) {              // just "Spotibot" -> wait for the command
+            if (cmd.isEmpty()) {              // just "Spotibot" -> wait briefly for the command
                 armedUntil.put(userId, now + ARM_MS);
                 notice(userId, "Yes? Say a command, e.g. \"play Africa by Toto\"");
                 return;
             }
         } else if (armedUntil.getOrDefault(userId, 0L) > now) {
             cmd = clean.replaceAll("^[\\s,]+|[\\s,]+$", "");
+            // after a bare "Spotibot", only a short, confident, recognised command counts (not ordinary chatter)
+            if (logprob < MIN_LOGPROB || cmd.split("\\s+").length > 10 || !looksLikeCommand(cmd)) return;
+            armed = true;
         } else {
-            return; // ordinary conversation: ignored, never logged
+            return; // ordinary conversation (or talking ABOUT the bot mid-sentence): ignored, never logged
         }
         armedUntil.remove(userId);
-        logger.info("[VOICE] command from {}: {}", userId, cmd);
+        logger.info("[VOICE] command from {} ({}conf {}): \"{}\" -> {}", userId, armed ? "armed, " : "", logprob, text, cmd);
         run(userId, cmd);
+    }
+
+    /** The wake word must open the phrase (at most two filler words before it, e.g. "oh hey Spotibot"). */
+    private static boolean wakeAtStart(String clean, int start) {
+        String before = clean.substring(0, start).toLowerCase().replaceAll("[,\\s]+", " ").trim();
+        if (before.isEmpty()) return true;
+        String[] words = before.split(" ");
+        if (words.length > 2) return false;
+        for (String wd : words) if (!FILLERS.contains(wd)) return false;
+        return true;
+    }
+
+    private static boolean looksLikeCommand(String cmd) {
+        String c = cmd.toLowerCase().replaceAll(",", "").trim();
+        return PLAY.matcher(cmd.replaceAll(",", "")).find() || PLAYLIST.matcher(cmd.replaceAll(",", "")).find()
+                || c.matches("(skip|next|pause|resume|continue|unpause|stop|leave|shuffle|repeat|louder|quieter|save|radio|what|volume|go away|bye|goodbye).*");
+    }
+
+    private static double envDouble(String k, double d) {
+        try {
+            return Double.parseDouble(System.getenv(k));
+        } catch (Exception e) {
+            return d;
+        }
     }
 
     private void run(long userId, String cmd) {
@@ -239,7 +280,7 @@ public final class VoiceListener implements AudioReceiveHandler {
         String result;
         if (c.matches("(skip|next|next song|skip (this|it|this song|the song)|skip song)( please)?")) {
             result = PlayerControls.skip(ts, who);
-        } else if (c.matches("(pause|pause (it|the music|music)|hold on|wait)( please)?")) {
+        } else if (c.matches("(pause|pause (it|the music|music|the song|this))( please)?")) {
             result = PlayerControls.setPaused(ts, true, who);
         } else if (c.matches("(resume|continue|unpause|play|keep playing|go|resume (the )?music)( please)?")) {
             result = PlayerControls.setPaused(ts, false, who);

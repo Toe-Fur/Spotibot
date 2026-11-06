@@ -12,6 +12,12 @@ All notable changes to this project will be documented in this file.
   everyone else has gone). Handy with Gaming mode, where the bot sits in the channel waiting for "Spotibot, ...".
   Saved per server; also `!settings idle <minutes|never>` and `/settings idle_minutes` (0 = never).
 
+### Changed
+- **Fewer accidental voice commands in Gaming mode.** "Spotibot" now has to start the phrase (a filler like "oh" or "hey"
+  before it is fine), so talking *about* the bot ("should we tell Spotibot to pause it?") no longer triggers anything.
+  Low-confidence transcriptions are ignored, "wait" and "hold on" no longer pause, and after a bare "Spotibot" only a
+  short recognised command within 5 seconds counts. The full phrase of every command the bot acts on is logged.
+
 ### Fixed
 - Spotify credentials are read from the config folder (`CONFIG_DIR`) instead of a path relative to the working directory.
 
