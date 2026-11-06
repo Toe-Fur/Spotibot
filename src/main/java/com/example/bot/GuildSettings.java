@@ -28,6 +28,10 @@ public final class GuildSettings {
     public volatile boolean radio = StreamTrack.enabled();
     public volatile int idleMinutes = VoiceSession.IDLE_MIN;
     public volatile boolean tidy = true;
+    public volatile boolean djMode = false;
+    public volatile long djRoleId = 0;          // 0 = a role named "DJ"
+    public volatile boolean recap = true;       // weekly recap post
+    public volatile long recapChannelId = 0;    // last channel the queue panel lived in
 
     public static GuildSettings of(long guildId) {
         load();
@@ -47,6 +51,10 @@ public final class GuildSettings {
                 s.radio = o.optBoolean("radio", s.radio) && StreamTrack.enabled();
                 s.idleMinutes = Math.max(0, Math.min(240, o.optInt("idleMinutes", s.idleMinutes))); // 0 = never
                 s.tidy = o.optBoolean("tidy", s.tidy);
+                s.djMode = o.optBoolean("djMode", false);
+                s.djRoleId = o.optLong("djRoleId", 0);
+                s.recap = o.optBoolean("recap", true);
+                s.recapChannelId = o.optLong("recapChannelId", 0);
                 ALL.put(Long.parseLong(k), s);
             }
         } catch (Exception e) {
@@ -59,7 +67,9 @@ public final class GuildSettings {
             JSONObject root = new JSONObject();
             ALL.forEach((id, s) -> root.put(String.valueOf(id), new JSONObject()
                     .put("gamingMode", s.gamingMode).put("radio", s.radio)
-                    .put("idleMinutes", s.idleMinutes).put("tidy", s.tidy)));
+                    .put("idleMinutes", s.idleMinutes).put("tidy", s.tidy)
+                    .put("djMode", s.djMode).put("djRoleId", s.djRoleId)
+                    .put("recap", s.recap).put("recapChannelId", s.recapChannelId)));
             Path tmp = Path.of(FILE + ".tmp");
             Files.writeString(tmp, root.toString(2), StandardCharsets.UTF_8);
             Files.move(tmp, FILE, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
@@ -70,7 +80,8 @@ public final class GuildSettings {
 
     public String describe() {
         return "Gaming mode " + (gamingMode ? "on" : "off") + "  |  Radio " + (radio ? "on" : "off")
-                + "  |  Leave when idle: " + idleLabel(idleMinutes) + "  |  Tidy commands " + (tidy ? "on" : "off");
+                + "  |  Leave when idle: " + idleLabel(idleMinutes) + "  |  Tidy commands " + (tidy ? "on" : "off")
+                + "  |  DJ mode " + (djMode ? "on" : "off") + "  |  Weekly recap " + (recap ? "on" : "off");
     }
 
     /** Choices for the panel's idle timer dropdown (minutes; 0 = never). */

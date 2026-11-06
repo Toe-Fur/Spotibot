@@ -90,80 +90,28 @@ public class Spotibot extends ListenerAdapter {
 
     @Override
     public void onButtonInteraction(ButtonInteractionEvent event) {
-        String id = event.getComponentId();
-        boolean paging = id.equals(CommandHandler.BTN_QUEUE_PREV) || id.equals(CommandHandler.BTN_QUEUE_NEXT);
-        if (!paging && !id.startsWith(PlayerControls.BTN_PREFIX)) return;
-
-        Guild guild = event.getGuild();
-        if (guild == null) return;
-
-        TrackScheduler scheduler = trackSchedulerRegistry.getOrCreate(guild, this);
-        String who = event.getMember() != null ? event.getMember().getEffectiveName() : event.getUser().getName();
-
-        // metzfam: Stop needs to cancel downloads (can block briefly), so acknowledge first.
-        if (id.equals(PlayerControls.BTN_LEAVE)) {
-            event.deferEdit().queue();
-            VoiceSession.leave(guild, "dismissed by " + who);
-            return;
+        try {
+            Interactions.button(event, this);
+        } catch (Exception e) {
+            logger.error("Button failed", e);
+            if (!event.isAcknowledged()) event.reply("Something went wrong: " + e.getMessage()).setEphemeral(true).queue();
         }
-        if (id.equals(PlayerControls.BTN_STOP)) {
-            event.deferEdit().queue();
-            CommandHandler.handleStopCommand(guild, event.getGuildChannel(), scheduler, PlayerControls.serverFolder(guild),
-                    this, trackSchedulerRegistry, downloadQueue, who, true);
-            return;
-        }
-
-        QueuePanel panel = QueuePanel.of(guild.getIdLong());
-        panel.bindScheduler(scheduler);
-        String result = "";
-        if (paging) {
-            panel.setPage(id.equals(CommandHandler.BTN_QUEUE_NEXT) ? panel.page() + 1 : panel.page() - 1);
-        } else if (id.equals(PlayerControls.BTN_PAUSE)) {
-            result = PlayerControls.togglePause(scheduler, who);
-        } else if (id.equals(PlayerControls.BTN_SKIP)) {
-            result = PlayerControls.skip(scheduler, who);
-        } else if (id.equals(PlayerControls.BTN_GAMING)) {
-            result = PlayerControls.gaming(guild, null, who);
-        } else if (id.equals(PlayerControls.BTN_RADIO)) {
-            result = PlayerControls.radio(scheduler, null, who);
-        } else if (id.equals(PlayerControls.BTN_SHUFFLE)) {
-            result = PlayerControls.shuffle(scheduler, who);
-        } else if (id.equals(PlayerControls.BTN_REPEAT)) {
-            result = PlayerControls.repeat(scheduler, null, who);
-        } else if (id.equals(PlayerControls.BTN_SAVE)) {
-            // Jellyfin lookup can take a moment: acknowledge, then edit the panel when done
-            event.deferEdit().queue();
-            String r = PlayerControls.save(scheduler, who);
-            panel.setNotice(r == null ? "Nothing is playing right now." : r);
-            return;
-        } else if (id.startsWith(PlayerControls.BTN_SEEK)) {
-            try {
-                result = PlayerControls.seek(scheduler, Long.parseLong(id.substring(PlayerControls.BTN_SEEK.length())), who);
-            } catch (NumberFormatException e) {
-                result = "";
-            }
-        }
-        if (result == null) result = "Nothing is playing right now.";
-        if (!result.isEmpty()) panel.setNoticeQuiet(result);
-        event.editMessageEmbeds(panel.render().build()).setComponents(panel.components()).queue(null, e -> {});
     }
 
     @Override
     public void onStringSelectInteraction(net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent event) {
-        if (!event.getComponentId().equals(PlayerControls.MENU_IDLE) || event.getGuild() == null) return;
-        Guild guild = event.getGuild();
-        String who = event.getMember() != null ? event.getMember().getEffectiveName() : event.getUser().getName();
-        int minutes;
         try {
-            minutes = Integer.parseInt(event.getValues().get(0));
+            Interactions.select(event, this);
         } catch (Exception e) {
-            event.deferEdit().queue();
-            return;
+            logger.error("Dropdown failed", e);
+            if (!event.isAcknowledged()) event.reply("Something went wrong: " + e.getMessage()).setEphemeral(true).queue();
         }
-        QueuePanel panel = QueuePanel.of(guild.getIdLong());
-        panel.bindScheduler(trackSchedulerRegistry.getOrCreate(guild, this));
-        panel.setNoticeQuiet(PlayerControls.setIdle(guild, minutes, who));
-        event.editMessageEmbeds(panel.render().build()).setComponents(panel.components()).queue(null, e -> {});
+    }
+
+    @Override
+    public void onReady(net.dv8tion.jda.api.events.session.ReadyEvent event) {
+        Perms.loadOwners(event.getJDA());
+        History.startRecaps(event.getJDA());
     }
 
     @Override

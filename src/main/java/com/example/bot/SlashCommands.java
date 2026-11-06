@@ -31,6 +31,18 @@ public final class SlashCommands {
         c.add(Commands.slash("play", "Play a song, link or playlist URL")
                 .addOptions(new OptionData(OptionType.STRING, "song", "Song name, YouTube or Spotify link", true, StreamTrack.enabled()),
                         new OptionData(OptionType.BOOLEAN, "next", "Play it right after the current song", false)));
+        c.add(Commands.slash("search", "Search and pick the right version of a song")
+                .addOptions(new OptionData(OptionType.STRING, "song", "What to search for", true, StreamTrack.enabled())));
+        c.add(Commands.slash("lyrics", "Lyrics for the current song (only you see them)"));
+        c.add(Commands.slash("history", "Recently played songs; play one again"));
+        c.add(Commands.slash("replay", "Play what we played last time (the previous listening session)"));
+        c.add(Commands.slash("filter", "Sound filter for everything that plays")
+                .addOptions(new OptionData(OptionType.STRING, "sound", "Pick a filter", true)
+                        .addChoice("Normal", "OFF").addChoice("Bass boost", "BASS").addChoice("Nightcore", "NIGHTCORE")
+                        .addChoice("Slowed", "SLOWED").addChoice("8D audio", "EIGHT_D")));
+        c.add(Commands.slash("dj", "DJ mode: only DJs control playback (server owner only)")
+                .addOptions(new OptionData(OptionType.STRING, "mode", "on or off", false).addChoice("on", "on").addChoice("off", "off"),
+                        new OptionData(OptionType.ROLE, "role", "Role that counts as DJ (default: a role named DJ)", false)));
         c.add(Commands.slash("join", "Join your voice channel and wait for requests"));
         c.add(Commands.slash("leave", "Dismiss the bot from the voice channel"));
         c.add(Commands.slash("skip", "Skip the current song"));
@@ -62,7 +74,8 @@ public final class SlashCommands {
         }
         c.add(Commands.slash("settings", "Server settings for Spotibot")
                 .addOptions(new OptionData(OptionType.INTEGER, "idle_minutes", "Leave after this many idle minutes (0 = never)", false).setRequiredRange(0, 240),
-                        new OptionData(OptionType.BOOLEAN, "tidy", "Delete typed control commands", false))
+                        new OptionData(OptionType.BOOLEAN, "tidy", "Delete typed control commands", false),
+                        new OptionData(OptionType.BOOLEAN, "weekly_recap", "Post a weekly music recap on Sundays", false))
                 .setDefaultPermissions(DefaultMemberPermissions.enabledFor(Permission.MANAGE_SERVER)));
         c.add(Commands.slash("help", "How to use Spotibot"));
         return c;
@@ -98,7 +111,77 @@ public final class SlashCommands {
         TrackScheduler ts = bot.getTrackSchedulerRegistry().getOrCreate(guild, bot);
         String result;
 
+        String action = switch (e.getName()) {
+            case "pause", "resume" -> "pause";
+            case "stop", "leave", "shuffle", "repeat", "volume", "radio", "gaming", "filter", "settings" -> e.getName();
+            default -> "";
+        };
+        String denied = PlayerControls.check(member, action);
+        if (denied != null) {
+            e.reply(denied).setEphemeral(true).queue();
+            return;
+        }
+
         switch (e.getName()) {
+            case "search" -> {
+                e.deferReply(true).queue();
+                List<StreamTrack.SearchHit> hits = StreamTrack.search(opt(e, "song"), 5);
+                if (hits.isEmpty()) {
+                    e.getHook().sendMessage("Nothing found for " + opt(e, "song") + ".").queue();
+                    return;
+                }
+                net.dv8tion.jda.api.components.selections.StringSelectMenu.Builder menu =
+                        net.dv8tion.jda.api.components.selections.StringSelectMenu.create(PlayerControls.MENU_SEARCH).setPlaceholder("Pick the one you want");
+                for (StreamTrack.SearchHit h : hits) menu.addOption(h.label(), h.videoId());
+                e.getHook().sendMessage("Results for **" + opt(e, "song") + "**").setComponents(
+                        net.dv8tion.jda.api.components.actionrow.ActionRow.of(menu.build())).queue();
+                return;
+            }
+            case "lyrics" -> {
+                e.deferReply(true).queue(h -> Interactions.sendLyrics(h, ts));
+                return;
+            }
+            case "history" -> {
+                var recent = History.recent(guild.getIdLong(), 25);
+                if (recent.isEmpty()) {
+                    e.reply("Nothing played yet.").setEphemeral(true).queue();
+                    return;
+                }
+                e.replyEmbeds(Interactions.historyEmbed(recent).build()).setComponents(Interactions.historyComponents(recent))
+                        .setEphemeral(true).queue();
+                return;
+            }
+            case "replay" -> {
+                if (vc == null) {
+                    e.reply("Join a voice channel first.").setEphemeral(true).queue();
+                    return;
+                }
+                List<String> reqs = History.previousSession(guild.getIdLong()).stream().map(History.Entry::request).toList();
+                if (reqs.isEmpty()) {
+                    e.reply("No earlier session to replay yet.").setEphemeral(true).queue();
+                    return;
+                }
+                e.reply("Replaying " + reqs.size() + " songs from last time.").setEphemeral(true).queue();
+                TrackScheduler t = VoiceSession.join(guild, vc, ch);
+                DownloadQueueHandler.queueAll(reqs, "Replaying last session (" + reqs.size() + " songs) - " + who, false,
+                        t, ch, guild, bot.getDownloadQueue(), member);
+                return;
+            }
+            case "filter" -> result = PlayerControls.filter(ts, SoundFilters.Filter.valueOf(opt(e, "sound")), who);
+            case "dj" -> {
+                if (!Perms.canManageDj(member)) {
+                    e.reply("Only the server owner can change DJ mode.").setEphemeral(true).queue();
+                    return;
+                }
+                OptionMapping role = e.getOption("role");
+                if (role != null) {
+                    GuildSettings.of(guild.getIdLong()).djRoleId = role.getAsRole().getIdLong();
+                    GuildSettings.save();
+                }
+                String mode = opt(e, "mode");
+                result = mode.isEmpty() && role != null ? "DJ role set to " + role.getAsRole().getName()
+                        : PlayerControls.djMode(member, mode.isEmpty() ? null : mode.equals("on"));
+            }
             case "play" -> {
                 if (vc == null) {
                     e.reply("Join a voice channel first.").setEphemeral(true).queue();
@@ -107,7 +190,7 @@ public final class SlashCommands {
                 String song = opt(e, "song");
                 boolean next = e.getOption("next") != null && e.getOption("next").getAsBoolean();
                 e.reply((next ? "Up next: " : "Adding: ") + song).setEphemeral(true).queue();
-                CommandHandler.play(guild, vc, ch, song, bot, bot.getDownloadQueue(), null, next);
+                CommandHandler.play(guild, vc, ch, song, bot, bot.getDownloadQueue(), null, next, member);
                 return;
             }
             case "playlist" -> {
@@ -116,7 +199,7 @@ public final class SlashCommands {
                     return;
                 }
                 e.reply("Loading playlist " + opt(e, "name") + "...").setEphemeral(true).queue();
-                CommandHandler.playPlaylist(guild, vc, ch, opt(e, "name"), bot, who);
+                CommandHandler.playPlaylist(guild, vc, ch, opt(e, "name"), bot, who, member);
                 return;
             }
             case "join" -> {
@@ -143,7 +226,7 @@ public final class SlashCommands {
                         bot.getTrackSchedulerRegistry(), bot.getDownloadQueue(), who, true);
                 return;
             }
-            case "skip" -> result = PlayerControls.skip(ts, who);
+            case "skip" -> result = PlayerControls.skipBy(ts, member);
             case "pause" -> result = PlayerControls.setPaused(ts, true, who);
             case "resume" -> result = PlayerControls.setPaused(ts, false, who);
             case "np" -> result = PlayerControls.nowPlaying(ts);
@@ -170,10 +253,11 @@ public final class SlashCommands {
             }
             case "settings" -> {
                 GuildSettings gs = GuildSettings.of(guild.getIdLong());
-                OptionMapping idle = e.getOption("idle_minutes"), tidy = e.getOption("tidy");
+                OptionMapping idle = e.getOption("idle_minutes"), tidy = e.getOption("tidy"), recap = e.getOption("weekly_recap");
                 if (idle != null) gs.idleMinutes = idle.getAsInt();
                 if (tidy != null) gs.tidy = tidy.getAsBoolean();
-                if (idle != null || tidy != null) GuildSettings.save();
+                if (recap != null) gs.recap = recap.getAsBoolean();
+                if (idle != null || tidy != null || recap != null) GuildSettings.save();
                 e.reply(gs.describe()).setEphemeral(true).queue();
                 return;
             }

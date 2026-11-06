@@ -349,9 +349,68 @@ _prefetch_sem = asyncio.Semaphore(3)
 _producing: set[str] = set()
 
 
+# metzfam 2026-11-06: volume levelling. Every song is loudness-normalised (EBU R128, -14 LUFS like the big
+# streaming services) while it is transcoded, so quiet and loud songs play at about the same volume.
+# Already-cached songs are levelled by a slow background job (one at a time, low priority).
+LOUDNORM = os.environ.get("LOUDNORM", "1") not in ("0", "false", "off")
+LOUDNORM_ARGS = ["-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-ar", "44100"] if LOUDNORM else []
+
+
+def _mark_normalized(vid: str) -> None:
+    try:
+        with _db() as c:
+            c.execute("INSERT OR REPLACE INTO norm VALUES (?)", (vid,))
+    except sqlite3.Error as ex:
+        log.warning("norm db: %s", ex)
+
+
+async def _normalize_backlog() -> None:
+    """Level the loudness of songs cached before volume levelling existed."""
+    await asyncio.sleep(60)
+    while LOUDNORM:
+        try:
+            with _db() as c:
+                done = {r[0] for r in c.execute("SELECT vid FROM norm")}
+            todo = [f[:-4] for f in os.listdir(CACHE_DIR) if f.endswith(".mp3") and "." not in f[:-4] and f[:-4] not in done]
+        except Exception as ex:
+            log.warning("normalize backlog: %s", ex)
+            todo = []
+        if not todo:
+            await asyncio.sleep(3600)
+            continue
+        log.info("levelling volume of %d cached songs in the background", len(todo))
+        for vid in todo:
+            final, part, _ = _paths(vid)
+            if vid in _producing or not os.path.exists(final):
+                continue
+            tmp = final + ".norm.mp3"
+            proc = await asyncio.create_subprocess_exec(
+                "nice", "-n", "19", "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", final,
+                *LOUDNORM_ARGS, "-c:a", "libmp3lame", "-b:a", "192k", "-write_xing", "0", "-f", "mp3", tmp,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+            _, err = await proc.communicate()
+            if proc.returncode == 0 and os.path.exists(tmp) and os.path.getsize(tmp) > 0:
+                os.replace(tmp, final)
+                _mark_normalized(vid)
+            else:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+                _mark_normalized(vid)  # don't retry a broken file forever
+                log.warning("level %s failed: %s", vid, err.decode(errors="replace")[:200])
+            await asyncio.sleep(1)
+
+
+@app.on_event("startup")
+async def _start_backlog():
+    asyncio.create_task(_normalize_backlog())
+
+
 def _db():
     c = sqlite3.connect(MATCH_DB, timeout=5)
     c.execute("CREATE TABLE IF NOT EXISTS m (k TEXT PRIMARY KEY, vid TEXT, ts REAL)")
+    c.execute("CREATE TABLE IF NOT EXISTS norm (vid TEXT PRIMARY KEY)")
     return c
 
 
@@ -425,13 +484,15 @@ async def _produce(video_id: str) -> None:
             open(part, "wb").close()
             proc = await asyncio.create_subprocess_exec(
                 "ffmpeg", "-hide_banner", "-loglevel", "warning", "-i", audio_url,
-                "-vn", "-c:a", "libmp3lame", "-b:a", "192k", "-write_xing", "0",
+                "-vn", *LOUDNORM_ARGS, "-c:a", "libmp3lame", "-b:a", "192k", "-write_xing", "0",
                 "-f", "mp3", "-y", part,
                 stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
             )
             _, err = await proc.communicate()
             if proc.returncode == 0 and os.path.exists(part) and os.path.getsize(part) > 0:
                 os.replace(part, final)
+                if LOUDNORM_ARGS:
+                    _mark_normalized(video_id)
                 log.info("cached %s (%d KB)", video_id, os.path.getsize(final) // 1024)
                 await asyncio.to_thread(_evict)
                 return
@@ -942,6 +1003,25 @@ async def _build_discover() -> dict:
 
 # metzfam: search suggestions for the Jellyfin web UI's dropdown.
 _suggest_cache: dict[str, tuple[float, list]] = {}
+
+@app.get("/catalog/search")
+async def catalog_search(q: str = Query(..., min_length=1, max_length=120), limit: int = Query(5, ge=1, le=20)):
+    """metzfam: top song matches (Spotibot /search picker)."""
+    try:
+        res = await asyncio.to_thread(yt().search, q, filter="songs", limit=max(limit, 10))
+    except Exception as ex:
+        log.info("search %r: %s", q, ex)
+        return []
+    out = []
+    for r in res or []:
+        if not r.get("videoId"):
+            continue
+        out.append({"videoId": r["videoId"], "title": r.get("title") or "", "artist": _normalize_artists(r),
+                    "duration": r.get("duration") or ""})
+        if len(out) >= limit:
+            break
+    return out
+
 
 @app.get("/catalog/suggest")
 async def catalog_suggest(q: str = Query("", max_length=80)):

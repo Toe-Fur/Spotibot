@@ -115,8 +115,9 @@ Downloads are processed through a single shared thread pool with a `LinkedBlocki
 
 - **One live queue message** — a single message per server, edited as songs load and play (no message per song).
   Now playing with elapsed time, the queue 5 per page, and a status line ("Skipped Yellow (Sam)").
-- **Buttons for everything** — `-10s` `-5s` `Pause/Resume` `+5s` `+10s`, `Skip` `Stop` `Leave` `Prev` `Next`,
-  `Shuffle` `Repeat`, and `Gaming mode` `Radio` `Save` when those features are set up.
+- **Buttons for everything** — `Pause` `Skip` `Stop` `Leave` `Lyrics`, `Shuffle` `Repeat` `Radio` `Gaming` `Save`, a queue picker
+  (move / remove songs) and `More` (private: seek, restart, sound filters, volume, idle timer, history, DJ mode).
+- **Vote skip, DJ mode, history, weekly recap, lyrics, sound filters, `/search` picker** — see the guide.
 - **Slash commands** — `/play` (with song suggestions in streaming mode), `/skip`, `/queue`, `/repeat`, ... replies only you see.
 - **Multi-source playback** — YouTube URLs and playlists, Spotify tracks and playlists, or plain search terms.
 - **Stays in the channel** — leaves when dismissed, after 30 min with nothing playing, or after 5 min alone.
@@ -168,7 +169,12 @@ message and the typed command is deleted when the bot has Manage Messages (`!set
 | `!gaming on\|off` | *(needs `STT_URL`)* Gaming mode: voice commands |
 | `!playlists` / `!playlist <name>` | *(Jellyfin)* List / play your Jellyfin playlists |
 | `!save` | *(Jellyfin)* Favorite the current song in Jellyfin |
-| `!settings [idle <min>\|tidy on/off\|gaming on/off\|radio on/off]` | Show or change server settings (Manage Server to change) |
+| `/search <song>` | Pick the right version from the top 5 matches |
+| `!lyrics` / `/lyrics` | Lyrics for the current song (lrclib.net) |
+| `!filter bass\|nightcore\|slowed\|8d\|off` | Sound filter for everything that plays |
+| `!history` / `!replay` | Recently played (pick to replay) / replay the previous session |
+| `!dj on\|off` / `/dj [role]` | DJ mode, server owner or bot owner only: only DJs control playback, others vote to skip |
+| `!settings [idle <min\|never>\|tidy on/off\|recap on/off\|gaming on/off\|radio on/off]` | Show or change server settings (Manage Server to change) |
 | `!help` | Show the help message |
 
 **Supported `!play` inputs:**

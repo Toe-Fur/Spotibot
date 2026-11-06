@@ -18,6 +18,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -54,6 +55,22 @@ public final class VoiceListener implements AudioReceiveHandler {
 
     private static final Pattern WAKE = Pattern.compile(
             "(?i)\\b(?:hey\\s+|ok(?:ay)?\\s+)?(?:spo(?:t|tt|d|dd)?(?:i|y|ie|ee|a|e)?\\s?(?:a\\s|the\\s|it\\s)?bots?|spotify\\s?bot|potty\\s?bot|spot\\s?bot)\\b[\\s,.!?]*(.*)");
+    /** "skip ahead 30 seconds", "go back 10 seconds", "rewind a minute", "forward 20". */
+    private static final Pattern SEEK = Pattern.compile(
+            "^((?:skip|go|jump|fast) (?:ahead|forward)|forward|ahead|(?:go |jump )?back|rewind)( (\\d+|a|an|one|five|ten|fifteen|twenty|thirty|forty|fifty|sixty) ?(sec\\w*|min\\w*)?)?$");
+
+    private static int wordNum(String w) {
+        return switch (w) {
+            case "a", "an", "one" -> 1; case "five" -> 5; case "ten" -> 10; case "fifteen" -> 15; case "twenty" -> 20;
+            case "thirty" -> 30; case "forty" -> 40; case "fifty" -> 50; case "sixty" -> 60;
+            default -> { try { yield Integer.parseInt(w); } catch (NumberFormatException e) { yield 10; } }
+        };
+    }
+
+    private static String nz(String s) {
+        return s == null ? "Nothing is playing right now" : s;
+    }
+
     private static final Pattern PLAYLIST = Pattern.compile(
             "(?i)^(?:please\\s+)?play\\s+(?:my|the|our)\\s+(.+?)\\s+(?:playlist|play list|mix)$|^(?:please\\s+)?play\\s+(?:the\\s+)?(?:playlist|play list)\\s+(.+)$");
     private static final Pattern PLAY = Pattern.compile("(?i)^(?:please\\s+|can you\\s+|could you\\s+)?(?:play|put on|queue(?: up)?|add)\\s+(.+?)(?:\\s+please)?$");
@@ -224,7 +241,7 @@ public final class VoiceListener implements AudioReceiveHandler {
     private static boolean looksLikeCommand(String cmd) {
         String c = cmd.toLowerCase().replaceAll(",", "").trim();
         return PLAY.matcher(cmd.replaceAll(",", "")).find() || PLAYLIST.matcher(cmd.replaceAll(",", "")).find()
-                || c.matches("(skip|next|pause|resume|continue|unpause|stop|leave|shuffle|repeat|louder|quieter|save|radio|what|volume|go away|bye|goodbye).*");
+                || c.matches("(skip|next|pause|resume|continue|unpause|stop|leave|shuffle|repeat|louder|quieter|save|radio|what|volume|go away|bye|goodbye|bass|nightcore|slowed|rewind|forward|back|restart|replay|jump).*");
     }
 
     private static double envDouble(String k, double d) {
@@ -245,6 +262,46 @@ public final class VoiceListener implements AudioReceiveHandler {
 
         AudioChannel vc0 = guild.getAudioManager().getConnectedChannel();
         GuildMessageChannel text0 = panelChannel();
+
+        // "play what we played last night"
+        if (c.matches("(play|replay) (what|the songs?) we (played|listened to) (last night|yesterday|last time)|replay( last (night|session|time))?|play (last night's|yesterday's) (songs|music|playlist)")) {
+            List<String> reqs = History.previousSession(guild.getIdLong()).stream().map(History.Entry::request).toList();
+            if (reqs.isEmpty() || vc0 == null || text0 == null) {
+                notice(userId, "No earlier session to replay yet");
+            } else {
+                DownloadQueueHandler.queueAll(reqs, "Heard " + who + ": replaying last session (" + reqs.size() + " songs)", false,
+                        ts, text0, guild, bot.getDownloadQueue(), member);
+            }
+            return;
+        }
+        // DJ mode applies to voice too
+        String djAction = c.matches("(pause|resume|continue|unpause).*") ? "pause"
+                : c.matches("(stop|leave|go away|bye|goodbye|disconnect|dismiss).*") ? "stop"
+                : c.matches("(shuffle|repeat|loop|louder|quieter|volume|turn (it )?(up|down)|radio|bass|nightcore|slowed|8 ?d|normal|filter|no filter|(skip|go|jump) (ahead|forward|back)|rewind|restart).*") ? "volume"
+                : "";
+        String denied = PlayerControls.check(member, djAction);
+        if (denied != null) {
+            notice(userId, denied + " (" + who + ")");
+            return;
+        }
+        Matcher seekM = SEEK.matcher(c);
+        if (seekM.find()) {
+            int n = seekM.group(3) == null ? 10 : wordNum(seekM.group(3));
+            if (seekM.group(4) != null && seekM.group(4).startsWith("min")) n *= 60;
+            boolean back = seekM.group(1).matches("(go |jump )?back|rewind");
+            notice(userId, nz(PlayerControls.seek(ts, (back ? -1L : 1L) * n * 1000, who)));
+            return;
+        }
+        if (c.matches("(restart|replay) (the |this )?song|(start )?from the (top|start|beginning)|start (it|the song) over")) {
+            notice(userId, nz(PlayerControls.restartSong(ts, who)));
+            return;
+        }
+        if (c.matches("(bass boost|nightcore|slowed( and reverb| reverb)?|8 ?d( audio)?|(normal|no) (sound|filter)|filter off|turn off (the )?filter)( please| mode)?")) {
+            SoundFilters.Filter f = c.startsWith("bass") ? SoundFilters.Filter.BASS : c.startsWith("night") ? SoundFilters.Filter.NIGHTCORE
+                    : c.startsWith("slow") ? SoundFilters.Filter.SLOWED : c.startsWith("8") ? SoundFilters.Filter.EIGHT_D : SoundFilters.Filter.OFF;
+            notice(userId, PlayerControls.filter(ts, f, who));
+            return;
+        }
 
         // "play my Vibes playlist" / "play the playlist Vibes"
         Matcher pl = PLAYLIST.matcher(cmd.replaceAll(",", ""));
@@ -279,7 +336,7 @@ public final class VoiceListener implements AudioReceiveHandler {
         }
         String result;
         if (c.matches("(skip|next|next song|skip (this|it|this song|the song)|skip song)( please)?")) {
-            result = PlayerControls.skip(ts, who);
+            result = PlayerControls.skipBy(ts, member);
         } else if (c.matches("(pause|pause (it|the music|music|the song|this))( please)?")) {
             result = PlayerControls.setPaused(ts, true, who);
         } else if (c.matches("(resume|continue|unpause|play|keep playing|go|resume (the )?music)( please)?")) {

@@ -45,7 +45,7 @@
   .note { border-left: 3px solid var(--warn); background: #221d12; padding: 10px 14px; border-radius: 6px; color: #e9dcc1; font-size: 15px; }
   .ok { border-left-color: var(--accent); background: #12201a; color: #cfe9da; }
   /* Mock of the Discord panel */
-  .mock { background: #2b2d31; border-radius: 8px; padding: 14px; max-width: 560px; font-size: 14px; }
+  .mock { background: #2b2d31; border-radius: 8px; padding: 14px; max-width: 560px; font-size: 14px; align-self: start; }
   .embed { border-left: 4px solid var(--accent); background: #232428; border-radius: 4px; padding: 10px 14px; }
   .embed .t { font-weight: 700; margin-bottom: 4px; }
   .embed .f { color: #b5bac1; font-size: 12px; margin-top: 8px; line-height: 1.5; }
@@ -76,7 +76,7 @@
       </div>
       <div class="brand">Spotibot</div>
       <nav>
-        <a href="#start">Start</a><a href="#panel">Buttons</a><a href="#gaming">Gaming mode</a><a href="#radio">Radio</a>
+        <a href="#start">Start</a><a href="#panel">Buttons</a><a href="#extras">Extras</a><a href="#gaming">Gaming mode</a><a href="#radio">Radio</a>
         <a href="#commands">Commands</a><a href="#selfhost">Self-host</a><a href="#changelog">Updates</a>
       </nav>
     </div>
@@ -120,32 +120,50 @@
         <div style="margin-top:8px"><b>Up next</b><br>1. Mr. Brightside - The Killers 3:42<br>2. Dreams - Fleetwood Mac 4:17<br>3. ...</div>
         <div class="f">Page 1/4 | 18 queued | 2 loading<br>Skipped Yellow (Sam)<br>Gaming mode on: say "Spotibot, play &lt;song&gt;" | leaves after 30 min idle</div>
       </div>
-      <div class="btns"><span class="b">-10s</span><span class="b">-5s</span><span class="b p">Pause</span><span class="b">+5s</span><span class="b">+10s</span></div>
-      <div class="btns"><span class="b">Skip</span><span class="b">Stop</span><span class="b r">Leave</span><span class="b">◀ Prev</span><span class="b">Next ▶</span></div>
-      <div class="btns"><span class="b g">Gaming mode: on</span><span class="b g">Radio: on</span><span class="b">Shuffle</span><span class="b">Repeat: off</span><span class="b">Save</span></div>
-      <div class="btns"><span class="b" style="flex:1;background:#1e1f22;border:1px solid #3f4147">Leave after 30 min idle &#9662;</span></div>
-      <div class="btns"><span class="b l">Guide &amp; updates</span></div>
+      <div class="btns"><span class="b p">Pause</span><span class="b">Skip</span><span class="b">Stop</span><span class="b r">Leave</span><span class="b">Lyrics</span></div>
+      <div class="btns"><span class="b">Shuffle</span><span class="b">Repeat: off</span><span class="b g">Radio: on</span><span class="b g">Gaming: on</span><span class="b">Save</span></div>
+      <div class="btns"><span class="b" style="flex:1;background:#1e1f22;border:1px solid #3f4147">Pick a song in the queue to move or remove &#9662;</span></div>
+      <div class="btns"><span class="b">◀ Prev</span><span class="b">Next ▶</span><span class="b">More</span><span class="b l">Guide &amp; updates</span></div>
     </div>
     <div>
       <table>
         <tr><th>Button</th><th>What it does</th></tr>
-        <tr><td><b>-10s -5s +5s +10s</b></td><td>Jump back or forward in the current song.</td></tr>
         <tr><td><b>Pause / Resume</b></td><td>One button; it changes label.</td></tr>
-        <tr><td><b>Skip</b></td><td>Next song. If the next one is still loading it starts as soon as it's ready.</td></tr>
+        <tr><td><b>Skip</b></td><td>Next song. With 3+ people listening it's a vote (majority wins), unless you added the song.</td></tr>
         <tr><td><b>Stop</b></td><td>Clears the music. The bot stays in the channel.</td></tr>
         <tr><td><b>Leave</b></td><td>Dismisses the bot from the voice channel.</td></tr>
-        <tr><td><b>Prev / Next</b></td><td>Page through the queue, 5 songs per page.</td></tr>
-        <tr><td><b>Gaming mode</b></td><td>Turns voice commands on or off. <a href="#gaming">More below.</a></td></tr>
+        <tr><td><b>Lyrics</b></td><td>Lyrics of the current song, shown only to you.</td></tr>
+        <tr><td><b>Shuffle / Repeat</b></td><td>Shuffle the queue; repeat off, this song, or the whole queue.</td></tr>
         <tr><td><b>Radio</b></td><td>When the queue runs out, keep playing similar songs.</td></tr>
-        <tr><td><b>Shuffle</b></td><td>Shuffles the songs waiting in the queue.</td></tr>
-        <tr><td><b>Repeat</b></td><td>Cycles off, this song, the whole queue.</td></tr>
-        <tr><td><b>Save</b></td><td>Saves the song to your Jellyfin favorites (and library), if this server has Jellyfin set up.</td></tr>
-        <tr><td><b>Leave after idle</b></td><td>Dropdown: how long the bot waits in the channel with nothing playing before it leaves
-          (5 min to 2 hours, or never). Set it long while gaming so it's there when you say "Spotibot, ...".</td></tr>
+        <tr><td><b>Gaming</b></td><td>Voice commands on or off. <a href="#gaming">More below.</a></td></tr>
+        <tr><td><b>Save</b></td><td>Saves the song to Jellyfin favorites (and the library), if set up.</td></tr>
+        <tr><td><b>Queue picker</b></td><td>Pick a waiting song, then Play next, Move to end or Remove.</td></tr>
+        <tr><td><b>Prev / Next</b></td><td>Page through the queue, 5 songs per page.</td></tr>
+        <tr><td><b>More</b></td><td>Private controls only you see: jump -10s, -5s, +5s, +10s or restart the song, sound filters,
+          volume, the <b>leave after idle</b> timer (5 min to 2 hours, or never), History and DJ mode.</td></tr>
       </table>
       <p class="lead" style="margin-top:12px">The footer shows who did what ("Paused (Chris)"). Buttons for features a server
         hasn't set up are simply not shown.</p>
     </div>
+  </div>
+</section>
+
+<section id="extras">
+  <h2>Finding songs, lyrics, filters and history</h2>
+  <div class="grid">
+    <div class="card"><h3>Pick the right version</h3><p><code>/search &lt;song&gt;</code> shows the top 5 matches (original, live,
+      covers, remixes) and you pick one. <code>/play</code> suggests songs as you type.</p></div>
+    <div class="card"><h3>Lyrics</h3><p>The <b>Lyrics</b> button or <code>/lyrics</code> shows the current song's lyrics only to you.</p></div>
+    <div class="card"><h3>Sound filters</h3><p>Bass boost, Nightcore, Slowed and 8D audio, from <b>More</b>, <code>/filter</code> or
+      "Spotibot, bass boost". "Spotibot, normal sound" turns it off. Volume is levelled automatically so quiet and loud songs match.</p></div>
+    <div class="card"><h3>History and replay</h3><p><code>/history</code> lists what played and who added it; pick one to play it again.
+      <code>/replay</code> or "Spotibot, play what we played last night" queues the whole previous session. On Sundays the bot posts
+      the week's most played songs and top DJs.</p></div>
+    <div class="card"><h3>DJ mode</h3><p>Off by default. The server owner can turn it on (<code>/dj</code>): then only people with the DJ role
+      (pick it with <code>/dj role:</code>) can stop, pause, change modes, filters and volume, or remove other people's songs. Everyone can
+      still add songs, vote to skip, and skip or remove their own.</p></div>
+    <div class="card"><h3>Vote skip</h3><p>With 3 or more people listening, Skip becomes a vote and needs a majority. The person who added
+      the song, and DJs, skip straight away.</p></div>
   </div>
 </section>
 
@@ -175,6 +193,9 @@
     <tr><td>shuffle</td><td>Shuffle the queue.</td></tr>
     <tr><td>repeat / repeat all / stop repeating</td><td>Repeat this song, the queue, or turn repeat off.</td></tr>
     <tr><td>louder / quieter</td><td>Volume up or down.</td></tr>
+    <tr><td>skip ahead 30 seconds / go back 10 seconds</td><td>Jump within the song. "restart the song" starts it over.</td></tr>
+    <tr><td>bass boost / nightcore / slowed / 8D / normal sound</td><td>Sound filters.</td></tr>
+    <tr><td>play what we played last night</td><td>Replay the previous listening session.</td></tr>
     <tr><td>what's playing</td><td>Shows the song and time on the queue message.</td></tr>
     <tr><td>save this</td><td>Save the song to Jellyfin favorites (if set up).</td></tr>
     <tr><td>radio on / radio off</td><td>Turn radio autoplay on or off.</td></tr>
@@ -214,6 +235,11 @@
     <tr><td><code>/np</code> <code>!np</code></td><td>What's playing and how far in.</td></tr>
     <tr><td><code>/shuffle</code> <code>/repeat</code></td><td>Shuffle; repeat off, song or queue (<code>!repeat song</code>).</td></tr>
     <tr><td><code>/volume</code> <code>!volume 50</code></td><td>Volume 0-100.</td></tr>
+    <tr><td><code>/search</code></td><td>Pick from the top 5 matches.</td></tr>
+    <tr><td><code>/lyrics</code> <code>!lyrics</code></td><td>Lyrics for the current song.</td></tr>
+    <tr><td><code>/filter</code> <code>!filter nightcore</code></td><td>Bass boost, nightcore, slowed, 8d, off.</td></tr>
+    <tr><td><code>/history</code> <code>/replay</code></td><td>Recently played; replay the previous session. <code>!history</code> <code>!replay</code> too.</td></tr>
+    <tr><td><code>/dj</code> <code>!dj on|off</code></td><td>DJ mode (server owner only). <code>/dj role:@Role</code> picks the DJ role.</td></tr>
     <tr><td><code>/radio</code> <code>!radio on|off|now</code></td><td>Radio autoplay.</td></tr>
     <tr><td><code>/gaming</code> <code>!gaming on|off</code></td><td>Gaming mode (voice commands).</td></tr>
     <tr><td><code>/playlist</code> <code>!playlists</code></td><td>Jellyfin playlists.</td></tr>

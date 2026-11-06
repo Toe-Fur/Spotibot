@@ -42,6 +42,20 @@ public class CommandHandler {
 
         String serverFolder = ConfigUtils.BASE_DOWNLOAD_FOLDER + guild.getId() + "/";
 
+        // DJ mode: typed control commands follow the same rules as the buttons
+        String djAction = lower.matches("!(pause|resume)") ? "pause"
+                : lower.matches("!(stop|leave|shuffle)") ? lower.substring(1)
+                : lower.startsWith("!repeat") || lower.startsWith("!loop") ? "repeat"
+                : lower.startsWith("!volume ") ? "volume"
+                : lower.startsWith("!radio") ? "radio"
+                : lower.startsWith("!gaming") || lower.startsWith("!listen") ? "gaming"
+                : lower.startsWith("!filter") ? "filter" : "";
+        String denied = PlayerControls.check(event.getMember(), djAction);
+        if (denied != null) {
+            status(event, trackScheduler, denied);
+            return;
+        }
+
         if (message.startsWith("!play ")) {
             String input = message.replace("!play ", "").trim();
             AudioChannel voiceChannel = event.getMember() == null || event.getMember().getVoiceState() == null
@@ -50,7 +64,7 @@ public class CommandHandler {
                 PlayerControls.flash(messageChannel, "You must be in a voice channel to use this command.");
                 return;
             }
-            play(guild, voiceChannel, messageChannel, input, bot, downloadQueue, null);
+            play(guild, voiceChannel, messageChannel, input, bot, downloadQueue, null, false, event.getMember());
 
         } else if (message.equalsIgnoreCase("!join")) {
             tidy(event);
@@ -105,7 +119,7 @@ public class CommandHandler {
                 PlayerControls.flash(messageChannel, "You must be in a voice channel to use this command.");
                 return;
             }
-            play(guild, vc, messageChannel, message.substring(10).trim(), bot, downloadQueue, null, true);
+            play(guild, vc, messageChannel, message.substring(10).trim(), bot, downloadQueue, null, true, event.getMember());
 
         } else if (lower.equals("!playlists")) {
             tidy(event);
@@ -125,7 +139,7 @@ public class CommandHandler {
                 PlayerControls.flash(messageChannel, "You must be in a voice channel to use this command.");
                 return;
             }
-            playPlaylist(guild, vc, messageChannel, message.substring(10).trim(), bot, who(event));
+            playPlaylist(guild, vc, messageChannel, message.substring(10).trim(), bot, who(event), event.getMember());
 
         } else if (lower.startsWith("!settings")) {
             String[] parts = lower.split("\\s+");
@@ -141,6 +155,7 @@ public class CommandHandler {
                         }
                     }
                     case "tidy" -> gs.tidy = parts[2].equals("on");
+                    case "recap" -> gs.recap = parts[2].equals("on");
                     case "gaming" -> PlayerControls.gaming(guild, parts[2].equals("on"), who(event));
                     case "radio" -> gs.radio = parts[2].equals("on") && StreamTrack.enabled();
                     default -> { }
@@ -150,7 +165,53 @@ public class CommandHandler {
                 status(event, trackScheduler, "Only server managers can change settings");
                 return;
             }
-            status(event, trackScheduler, gs.describe() + "  (change: !settings idle <min|never> | tidy on/off | gaming on/off | radio on/off)");
+            status(event, trackScheduler, gs.describe() + "  (change: !settings idle <min|never> | tidy on/off | recap on/off | gaming on/off | radio on/off)");
+
+        } else if (lower.startsWith("!filter")) {
+            SoundFilters.Filter f = SoundFilters.Filter.parse(lower.substring(7).trim());
+            status(event, trackScheduler, PlayerControls.filter(trackScheduler, f, who(event)) + "  (filters: bass, nightcore, slowed, 8d, off)");
+
+        } else if (lower.equals("!lyrics")) {
+            tidy(event);
+            Lyrics.Result r = null;
+            var cur = trackScheduler.getPlayer().getPlayingTrack();
+            if (cur != null) {
+                StreamTrack m = trackScheduler.metaOf(cur);
+                r = Lyrics.find(m != null ? m.songArtist : "", m != null ? m.songTitle : cur.getInfo().title);
+            }
+            if (r == null) {
+                PlayerControls.flash(messageChannel, cur == null ? "Nothing is playing right now." : "No lyrics found for this song.");
+            } else {
+                String txt = r.text().length() > 3900 ? r.text().substring(0, 3900) + "\n..." : r.text();
+                messageChannel.sendMessageEmbeds(new EmbedBuilder().setColor(new Color(0x1db954)).setTitle(r.title() + " - " + r.artist())
+                        .setDescription(txt).setFooter("Lyrics from lrclib.net  |  /lyrics shows them only to you").build())
+                        .queue(m -> m.delete().queueAfter(5, TimeUnit.MINUTES, null, x -> {}), x -> {});
+            }
+
+        } else if (lower.equals("!history") || lower.equals("!replay")) {
+            tidy(event);
+            if (lower.equals("!history")) {
+                var recent = History.recent(guild.getIdLong(), 25);
+                if (recent.isEmpty()) PlayerControls.flash(messageChannel, "Nothing played yet.");
+                else messageChannel.sendMessageEmbeds(Interactions.historyEmbed(recent).build())
+                        .setComponents(Interactions.historyComponents(recent))
+                        .queue(m -> m.delete().queueAfter(3, TimeUnit.MINUTES, null, x -> {}), x -> {});
+            } else {
+                AudioChannel vc = event.getMember() == null || event.getMember().getVoiceState() == null
+                        ? null : event.getMember().getVoiceState().getChannel();
+                List<String> reqs = History.previousSession(guild.getIdLong()).stream().map(History.Entry::request).toList();
+                if (vc == null) PlayerControls.flash(messageChannel, "Join a voice channel first.");
+                else if (reqs.isEmpty()) PlayerControls.flash(messageChannel, "No earlier session to replay yet.");
+                else {
+                    TrackScheduler t = VoiceSession.join(guild, vc, messageChannel);
+                    DownloadQueueHandler.queueAll(reqs, "Replaying last session (" + reqs.size() + " songs) - " + who(event), false,
+                            t, messageChannel, guild, downloadQueue, event.getMember());
+                }
+            }
+
+        } else if (lower.startsWith("!dj")) {
+            String arg = lower.substring(3).trim();
+            status(event, trackScheduler, PlayerControls.djMode(event.getMember(), arg.equals("on") ? Boolean.TRUE : arg.equals("off") ? Boolean.FALSE : null));
 
         } else if (message.equalsIgnoreCase("!pause") || message.equalsIgnoreCase("!resume")) {
             // metzfam: control commands report on the live panel (and the command message is tidied away)
@@ -171,7 +232,7 @@ public class CommandHandler {
             }
 
         } else if (message.equalsIgnoreCase("!skip")) {
-            status(event, trackScheduler, PlayerControls.skip(trackScheduler, who(event)));
+            status(event, trackScheduler, PlayerControls.skipBy(trackScheduler, event.getMember()));
 
         } else if (message.equalsIgnoreCase("!stop")) {
             tidy(event);
@@ -255,6 +316,11 @@ public class CommandHandler {
     /** Play a Jellyfin playlist by (fuzzy) name. */
     public static void playPlaylist(Guild guild, AudioChannel voiceChannel, GuildMessageChannel messageChannel, String name,
                                     Spotibot bot, String who) {
+        playPlaylist(guild, voiceChannel, messageChannel, name, bot, who, null);
+    }
+
+    public static void playPlaylist(Guild guild, AudioChannel voiceChannel, GuildMessageChannel messageChannel, String name,
+                                    Spotibot bot, String who, Member requester) {
         QueuePanel panel = QueuePanel.peek(guild.getIdLong());
         if (!JellyfinClient.enabled()) {
             PlayerControls.flash(messageChannel, "Playlists need Jellyfin (JELLYFIN_URL) - see the guide.");
@@ -274,19 +340,24 @@ public class CommandHandler {
             }
             TrackScheduler ts = VoiceSession.join(guild, voiceChannel, messageChannel);
             DownloadQueueHandler.queueAll(tracks, "Playlist " + pl.name() + " (" + tracks.size() + " songs)" + (who == null ? "" : " - " + who),
-                    ts, messageChannel, guild, bot.getDownloadQueue());
+                    false, ts, messageChannel, guild, bot.getDownloadQueue(), requester);
         });
     }
 
     public static void play(Guild guild, AudioChannel voiceChannel, GuildMessageChannel messageChannel, String input,
                             Spotibot bot, BlockingQueue<Runnable> downloadQueue, String notice, boolean next) {
+        play(guild, voiceChannel, messageChannel, input, bot, downloadQueue, notice, next, null);
+    }
+
+    public static void play(Guild guild, AudioChannel voiceChannel, GuildMessageChannel messageChannel, String input,
+                            Spotibot bot, BlockingQueue<Runnable> downloadQueue, String notice, boolean next, Member requester) {
         TrackScheduler trackScheduler = VoiceSession.join(guild, voiceChannel, messageChannel);
         String serverFolder = PlayerControls.serverFolder(guild);
         try {
             if (input.contains("spotify.com/track")) {
                 String trackId = SpotifyUtils.extractSpotifyId(input);
                 String trackTitle = SpotifyUtils.getTrackTitle(trackId);
-                DownloadQueueHandler.queueAll(List.of(trackTitle), notice, next, trackScheduler, messageChannel, guild, downloadQueue);
+                DownloadQueueHandler.queueAll(List.of(trackTitle), notice, next, trackScheduler, messageChannel, guild, downloadQueue, requester);
             } else if (input.contains("spotify.com/playlist")) {
                 String playlistId = SpotifyUtils.extractSpotifyId(input);
                 try {
@@ -296,7 +367,7 @@ public class CommandHandler {
                         return;
                     }
                     DownloadQueueHandler.queueAll(trackTitles, "Added Spotify playlist (" + trackTitles.size() + " songs)",
-                            trackScheduler, messageChannel, guild, downloadQueue);
+                            false, trackScheduler, messageChannel, guild, downloadQueue, requester);
                 } catch (IOException e) {
                     if ("SPOTIFY_NOT_ACCESSIBLE".equals(e.getMessage())) {
                         messageChannel.sendMessage(
@@ -320,7 +391,7 @@ public class CommandHandler {
                             ch.sendMessage("❌ Could not fetch playlist or it's empty.").queue();
                         } else {
                             DownloadQueueHandler.queueAll(videoUrls, "Added YouTube playlist (" + videoUrls.size() + " songs)",
-                                    trackScheduler, ch, guild, downloadQueue);
+                                    false, trackScheduler, ch, guild, downloadQueue, requester);
                         }
                     } catch (Exception e) {
                         ch.sendMessage("❌ Error fetching playlist: " + e.getMessage()).queue();
@@ -329,9 +400,9 @@ public class CommandHandler {
                     }
                 });
             } else if (input.contains("youtube.com") || input.contains("youtu.be")) {
-                DownloadQueueHandler.queueAll(List.of(input), notice, next, trackScheduler, messageChannel, guild, downloadQueue);
+                DownloadQueueHandler.queueAll(List.of(input), notice, next, trackScheduler, messageChannel, guild, downloadQueue, requester);
             } else {
-                DownloadQueueHandler.queueAll(List.of(input), notice, next, trackScheduler, messageChannel, guild, downloadQueue);
+                DownloadQueueHandler.queueAll(List.of(input), notice, next, trackScheduler, messageChannel, guild, downloadQueue, requester);
             }
         } catch (Exception e) {
             PlayerControls.flash(messageChannel, "An error occurred: " + e.getMessage());
@@ -427,7 +498,9 @@ public class CommandHandler {
         h.append("The queue message has buttons for pause, skip, stop, leave, -10s/-5s/+5s/+10s, shuffle and repeat.\n");
         h.append("`!queue` - bring the queue message down  |  `!np` - what's playing  |  `!volume <0-100>`\n");
         h.append("`!join` / `!leave` - the bot stays in voice until dismissed or idle\n");
-        h.append("`!shuffle`  |  `!repeat off|song|queue`\n");
+        h.append("`!shuffle`  |  `!repeat off|song|queue`  |  `!filter bass|nightcore|slowed|8d|off`  |  `!lyrics`\n");
+        h.append("`/search <song>` - pick the right version  |  `!history` / `!replay` - play last session again\n");
+        h.append("`!dj on|off` (server owner) - only DJs control playback; others vote to skip\n");
         if (StreamTrack.enabled()) h.append("`!radio on|off|now` - keep playing similar songs when the queue ends\n");
         if (JellyfinClient.enabled()) h.append("`!playlists` / `!playlist <name>` - Jellyfin playlists  |  `!save` - favorite in Jellyfin\n");
         if (VoiceListener.available()) h.append("`!gaming on|off` - Gaming mode: say \"Spotibot, play <song>\", \"Spotibot, skip\" ...\n");

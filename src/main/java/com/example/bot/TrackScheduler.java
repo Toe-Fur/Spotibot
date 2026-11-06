@@ -39,6 +39,9 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
     private volatile boolean radioBusy;
 
     public enum Repeat { OFF, ONE, ALL }
+    private volatile SoundFilters.Filter filter = SoundFilters.Filter.OFF;
+    /** Members who voted to skip the current song. */
+    private final java.util.Set<Long> skipVotes = ConcurrentHashMap.newKeySet();
     private volatile Repeat repeat = Repeat.OFF;
     private AudioTrack currentTrack;
     private final Guild guild;
@@ -96,8 +99,57 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
     }
 
     private void noteStarted(AudioTrack track) {
+        skipVotes.clear();
         StreamTrack m = meta.get(track);
-        if (m != null) lastPlayed = m;
+        if (m != null) {
+            lastPlayed = m;
+            History.record(guild.getIdLong(), m);
+        }
+    }
+
+    public java.util.Set<Long> skipVotes() {
+        return skipVotes;
+    }
+
+    public SoundFilters.Filter getFilter() {
+        return filter;
+    }
+
+    public void setFilter(SoundFilters.Filter f) {
+        filter = f == null ? SoundFilters.Filter.OFF : f;
+        SoundFilters.apply(player, filter);
+        refreshPanel();
+    }
+
+    /** Waiting songs with their request info (for the panel's queue picker). */
+    public synchronized List<AudioTrack> snapshot() {
+        return new ArrayList<>(queue);
+    }
+
+    public synchronized AudioTrack findQueued(long uid) {
+        for (AudioTrack t : queue) {
+            StreamTrack m = meta.get(t);
+            if (m != null && m.uid == uid) return t;
+        }
+        return null;
+    }
+
+    /** Move a waiting song: to the front (play next) or the back; or remove it. Returns its title, or null. */
+    public synchronized String moveQueued(long uid, String action) {
+        AudioTrack t = findQueued(uid);
+        if (t == null) return null;
+        List<AudioTrack> list = new ArrayList<>();
+        queue.drainTo(list);
+        list.remove(t);
+        switch (action) {
+            case "next" -> list.add(0, t);
+            case "last" -> list.add(t);
+            default -> { } // remove
+        }
+        queue.addAll(list);
+        refreshPanel();
+        String title = trackTitles.get(t.getIdentifier());
+        return title != null ? title : t.getInfo().title;
     }
 
     public StreamTrack metaOf(AudioTrack t) {

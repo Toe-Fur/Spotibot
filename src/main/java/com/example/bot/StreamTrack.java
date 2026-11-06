@@ -46,6 +46,62 @@ public final class StreamTrack {
     public volatile String songArtist;
     /** Queued by radio autoplay (shown in the panel). */
     public boolean fromRadio;
+    /** Who asked for it (vote skip: the requester can skip their own song; history). */
+    public volatile long requesterId;
+    public volatile String requesterName;
+    /** Stable id for queue actions (move / remove) from the panel. */
+    public final long uid = UIDS.incrementAndGet();
+    private static final java.util.concurrent.atomic.AtomicLong UIDS = new java.util.concurrent.atomic.AtomicLong();
+
+    public record SearchHit(String videoId, String title, String artist, String duration) {
+        public String label() {
+            String l = title + (artist == null || artist.isBlank() ? "" : " - " + artist) + (duration == null || duration.isBlank() ? "" : "  (" + duration + ")");
+            return l.length() > 100 ? l.substring(0, 97) + "..." : l;
+        }
+    }
+
+    /**
+     * Top matches for /search: YouTube Music songs via the stream server, or (classic mode) a yt-dlp search.
+     */
+    public static List<SearchHit> search(String q, int limit) {
+        List<SearchHit> out = new java.util.ArrayList<>();
+        if (q == null || q.isBlank()) return out;
+        try {
+            if (enabled()) {
+                HttpRequest req = HttpRequest.newBuilder(URI.create(BASE + "/catalog/search?limit=" + limit + "&q=" + enc(q)))
+                        .timeout(Duration.ofSeconds(15)).build();
+                HttpResponse<String> r = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
+                if (r.statusCode() == 200) {
+                    JSONArray arr = new JSONArray(r.body());
+                    for (int i = 0; i < arr.length() && out.size() < limit; i++) {
+                        JSONObject o = arr.getJSONObject(i);
+                        if (o.optString("videoId").isBlank()) continue;
+                        out.add(new SearchHit(o.getString("videoId"), o.optString("title"), o.optString("artist"), o.optString("duration")));
+                    }
+                    return out;
+                }
+            }
+            // classic mode (or the stream server has no /catalog/search): yt-dlp
+            Process p = Tools.withPath(new ProcessBuilder(Tools.ytdlp(), "--flat-playlist", "--no-warnings", "--print", "%(id)s\t%(title)s\t%(channel)s\t%(duration_string)s",
+                    "ytsearch" + limit + ":" + q)).redirectErrorStream(false).start();
+            try (var br = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    String[] f = line.split("\t", -1);
+                    if (f.length >= 2 && f[0].length() == 11) out.add(new SearchHit(f[0], f[1], f.length > 2 ? f[2].replaceAll(" - Topic$", "") : "", f.length > 3 && !"NA".equals(f[3]) ? f[3] : ""));
+                }
+            }
+            p.waitFor(30, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception e) {
+            logger.warn("search failed: {}", e.toString());
+        }
+        return out;
+    }
+
+    public static StreamTrack fromHit(SearchHit h) {
+        StreamTrack t = new StreamTrack(h.title(), h.artist(), h.videoId(), h.artist() == null || h.artist().isBlank() ? h.title() : h.title() + " - " + h.artist());
+        return t;
+    }
 
     private StreamTrack(String title, String artist, String videoId, String display) {
         this.title = title;

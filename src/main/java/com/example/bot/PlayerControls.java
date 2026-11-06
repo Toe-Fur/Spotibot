@@ -23,6 +23,97 @@ public final class PlayerControls {
     public static final String BTN_REPEAT = "sb:repeat";
     public static final String BTN_SAVE = "sb:save";
     public static final String MENU_IDLE = "sb:idle";
+    public static final String BTN_MORE = "sb:more";
+    public static final String BTN_LYRICS = "sb:lyrics";
+    public static final String BTN_HISTORY = "sb:history";
+    public static final String BTN_RESTART = "sb:restart";
+    public static final String BTN_VOL = "sb:vol:";          // + signed step
+    public static final String MENU_FILTER = "sb:filter";
+    public static final String MENU_QUEUE = "sb:queue";
+    public static final String MENU_HISTORY = "sb:histpick";
+    public static final String MENU_SEARCH = "sb:pick";
+    public static final String BTN_DJ = "sb:dj";
+    public static final String BTN_QACT = "sb:q:";            // + action:uid  (next | last | remove)
+
+    /** Actions only DJs may do while DJ mode is on (everyone can add songs, vote skip, lyrics, history, save). */
+    private static final java.util.Set<String> DJ_ONLY = java.util.Set.of(
+            "stop", "leave", "pause", "seek", "shuffle", "repeat", "radio", "gaming", "filter", "volume", "idle", "settings", "restart");
+
+    /** null = allowed; otherwise the message to show. */
+    public static String check(net.dv8tion.jda.api.entities.Member m, String action) {
+        if (m == null) return null;
+        if (DJ_ONLY.contains(action) && !Perms.allowed(m)) return Perms.denied(m.getGuild());
+        return null;
+    }
+
+    /** People listening with the bot (not bots, not deafened). */
+    public static int listeners(Guild g) {
+        var ch = g.getAudioManager().getConnectedChannel();
+        if (ch == null) return 0;
+        return (int) ch.getMembers().stream()
+                .filter(x -> !x.getUser().isBot() && (x.getVoiceState() == null || !x.getVoiceState().isDeafened())).count();
+    }
+
+    /**
+     * Skip with voting: with 3+ listeners a majority must vote, unless you asked for this song or you're a DJ
+     * (server managers/owner always count as DJs).
+     */
+    public static String skipBy(TrackScheduler ts, net.dv8tion.jda.api.entities.Member m) {
+        AudioTrack cur = ts.getPlayer().getPlayingTrack();
+        if (cur == null) return null;
+        String who = m == null ? null : m.getEffectiveName();
+        int n = listeners(ts.getGuild());
+        StreamTrack meta = ts.metaOf(cur);
+        boolean own = m != null && meta != null && meta.requesterId == m.getIdLong();
+        if (m == null || n < 3 || own || Perms.isDj(m)) return skip(ts, who);
+        ts.skipVotes().add(m.getIdLong());
+        int need = n / 2 + 1;
+        if (ts.skipVotes().size() >= need) return skip(ts, who) + " - vote passed";
+        return "Vote to skip: " + ts.skipVotes().size() + "/" + need + by(who);
+    }
+
+    /** DJ mode on/off: server owner or bot owner only. */
+    public static String djMode(net.dv8tion.jda.api.entities.Member m, Boolean on) {
+        if (m == null || !Perms.canManageDj(m)) return "Only the server owner can turn DJ mode on or off";
+        GuildSettings gs = GuildSettings.of(m.getGuild().getIdLong());
+        gs.djMode = on == null ? !gs.djMode : on;
+        GuildSettings.save();
+        if (!gs.djMode) return "DJ mode off: everyone can use all controls" + by(m.getEffectiveName());
+        boolean roleExists = gs.djRoleId != 0 ? m.getGuild().getRoleById(gs.djRoleId) != null
+                : !m.getGuild().getRolesByName("DJ", true).isEmpty();
+        return "DJ mode on: only the " + Perms.djRoleName(m.getGuild()) + " role (and server managers) can stop, skip without a vote, "
+                + "change modes and remove other people's songs" + (roleExists ? "" : ". Create a role named DJ (or pick one with /dj role)")
+                + by(m.getEffectiveName());
+    }
+
+    public static String filter(TrackScheduler ts, SoundFilters.Filter f, String who) {
+        ts.setFilter(f);
+        return (f == SoundFilters.Filter.OFF ? "Sound filter off" : "Sound filter: " + f.label) + by(who);
+    }
+
+    public static String restartSong(TrackScheduler ts, String who) {
+        AudioTrack cur = ts.getPlayer().getPlayingTrack();
+        if (cur == null) return null;
+        if (!cur.isSeekable()) return "This song can't be restarted";
+        cur.setPosition(0);
+        return "Restarted the song" + by(who);
+    }
+
+    /** Move/remove a queued song; you can always act on songs you added, others need DJ rights in DJ mode. */
+    public static String queueAction(TrackScheduler ts, net.dv8tion.jda.api.entities.Member m, long uid, String action) {
+        AudioTrack t = ts.findQueued(uid);
+        if (t == null) return "That song isn't in the queue any more";
+        StreamTrack meta = ts.metaOf(t);
+        boolean own = m != null && meta != null && meta.requesterId == m.getIdLong();
+        if (!own && m != null && !Perms.allowed(m)) return Perms.denied(m.getGuild());
+        String title = ts.moveQueued(uid, action);
+        String who = m == null ? null : m.getEffectiveName();
+        return switch (action) {
+            case "next" -> "Up next: " + title;
+            case "last" -> "Moved to the end: " + title;
+            default -> "Removed " + title;
+        } + by(who);
+    }
     public static final String BTN_SEEK = "sb:seek:"; // + signed milliseconds
 
     private PlayerControls() {

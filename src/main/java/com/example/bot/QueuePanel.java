@@ -83,6 +83,11 @@ public final class QueuePanel {
         channel = ch;
         scheduler = ts;
         if (newNotice != null) notice = newNotice;
+        GuildSettings gs = GuildSettings.of(guildId);
+        if (gs.recapChannelId != ch.getIdLong()) {   // weekly recap goes where the music happens
+            gs.recapChannelId = ch.getIdLong();
+            GuildSettings.save();
+        }
         update();
     }
 
@@ -234,60 +239,109 @@ public final class QueuePanel {
     public List<ActionRow> components() {
         TrackScheduler ts = scheduler;
         AudioTrack cur = ts == null ? null : ts.getPlayer().getPlayingTrack();
-        int total = upcoming().size();
-        List<ActionRow> rows = new ArrayList<>();
-        // Row 1: playback
-        if (cur != null) {
-            boolean paused = ts.getPlayer().isPaused();
-            boolean seek = cur.isSeekable();
-            rows.add(ActionRow.of(
-                    Button.secondary(PlayerControls.BTN_SEEK + "-10000", "-10s").withDisabled(!seek),
-                    Button.secondary(PlayerControls.BTN_SEEK + "-5000", "-5s").withDisabled(!seek),
-                    paused ? Button.success(PlayerControls.BTN_PAUSE, "Resume") : Button.primary(PlayerControls.BTN_PAUSE, "Pause"),
-                    Button.secondary(PlayerControls.BTN_SEEK + "5000", "+5s").withDisabled(!seek),
-                    Button.secondary(PlayerControls.BTN_SEEK + "10000", "+10s").withDisabled(!seek)));
-        }
+        List<AudioTrack> list = upcoming();
+        int total = list.size();
+        int pages = totalPages(total);
         boolean connected = ts != null && VoiceSession.isConnected(ts.getGuild());
-        if (cur != null || total > 0 || loading.get() > 0 || connected) {
-            // Row 2: queue
-            int pages = totalPages(total);
-            List<Button> r2 = new ArrayList<>();
-            r2.add(Button.secondary(PlayerControls.BTN_SKIP, "Skip").withDisabled(cur == null));
-            r2.add(Button.secondary(PlayerControls.BTN_STOP, "Stop").withDisabled(cur == null && total == 0 && loading.get() == 0));
-            r2.add(Button.danger(PlayerControls.BTN_LEAVE, "Leave"));
-            if (total > ConfigUtils.QUEUE_PAGE_SIZE) {
-                r2.add(Button.secondary(BTN_PREV, "◀ Prev").withDisabled(page <= 0));
-                r2.add(Button.secondary(BTN_NEXT, "Next ▶").withDisabled(page >= pages - 1));
-            }
-            rows.add(ActionRow.of(r2));
+        GuildSettings gs = GuildSettings.of(guildId);
+        List<ActionRow> rows = new ArrayList<>();
 
-            // Row 3: modes (only the ones this install supports)
-            GuildSettings gs = GuildSettings.of(guildId);
-            List<Button> r3 = new ArrayList<>();
-            if (VoiceListener.available()) r3.add(toggle(PlayerControls.BTN_GAMING, "Gaming mode", gs.gamingMode));
-            if (StreamTrack.enabled()) r3.add(toggle(PlayerControls.BTN_RADIO, "Radio", gs.radio));
-            r3.add(Button.secondary(PlayerControls.BTN_SHUFFLE, "Shuffle").withDisabled(total < 2));
+        if (cur != null || total > 0 || loading.get() > 0 || connected) {
+            // Row 1: playback
+            boolean paused = cur != null && ts.getPlayer().isPaused();
+            int votes = ts == null ? 0 : ts.skipVotes().size();
+            rows.add(ActionRow.of(
+                    paused ? Button.success(PlayerControls.BTN_PAUSE, "Resume") : Button.primary(PlayerControls.BTN_PAUSE, "Pause").withDisabled(cur == null),
+                    Button.secondary(PlayerControls.BTN_SKIP, votes > 0 ? "Skip (" + votes + " voted)" : "Skip").withDisabled(cur == null),
+                    Button.secondary(PlayerControls.BTN_STOP, "Stop").withDisabled(cur == null && total == 0 && loading.get() == 0),
+                    Button.danger(PlayerControls.BTN_LEAVE, "Leave"),
+                    Button.secondary(PlayerControls.BTN_LYRICS, "Lyrics").withDisabled(cur == null)));
+
+            // Row 2: modes (only the ones this install supports)
+            List<Button> r2 = new ArrayList<>();
+            r2.add(Button.secondary(PlayerControls.BTN_SHUFFLE, "Shuffle").withDisabled(total < 2));
             TrackScheduler.Repeat rp = ts == null ? TrackScheduler.Repeat.OFF : ts.getRepeat();
             String rl = switch (rp) { case OFF -> "Repeat: off"; case ONE -> "Repeat: song"; case ALL -> "Repeat: queue"; };
-            r3.add(rp == TrackScheduler.Repeat.OFF ? Button.secondary(PlayerControls.BTN_REPEAT, rl) : Button.success(PlayerControls.BTN_REPEAT, rl));
-            if (JellyfinClient.enabled()) r3.add(Button.secondary(PlayerControls.BTN_SAVE, "Save").withDisabled(cur == null));
-            rows.add(ActionRow.of(r3));
+            r2.add(rp == TrackScheduler.Repeat.OFF ? Button.secondary(PlayerControls.BTN_REPEAT, rl) : Button.success(PlayerControls.BTN_REPEAT, rl));
+            if (StreamTrack.enabled()) r2.add(toggle(PlayerControls.BTN_RADIO, "Radio", gs.radio));
+            if (VoiceListener.available()) r2.add(toggle(PlayerControls.BTN_GAMING, "Gaming", gs.gamingMode));
+            if (JellyfinClient.enabled()) r2.add(Button.secondary(PlayerControls.BTN_SAVE, "Save").withDisabled(cur == null));
+            rows.add(ActionRow.of(r2));
 
-            // Row 4: idle timer (how long the bot waits in the channel with nothing playing before it leaves)
-            int cur0 = gs.idleMinutes;
-            StringSelectMenu.Builder menu = StringSelectMenu.create(PlayerControls.MENU_IDLE).setPlaceholder("Leave after idle");
-            for (int m : GuildSettings.IDLE_CHOICES) {
-                String label = m > 0 ? "Leave after " + GuildSettings.idleLabel(m) + " idle" : "Never leave on idle (only when dismissed or alone)";
-                menu.addOption(label, String.valueOf(m));
+            // Row 3: pick a waiting song to move or remove
+            if (total > 0) {
+                int start = page * ConfigUtils.QUEUE_PAGE_SIZE;
+                StringSelectMenu.Builder q = StringSelectMenu.create(PlayerControls.MENU_QUEUE)
+                        .setPlaceholder("Pick a song in the queue to move or remove");
+                for (int i = start; i < Math.min(total, start + 25); i++) {
+                    StreamTrack m = ts.metaOf(list.get(i));
+                    if (m == null) continue;
+                    String label = (i + 1) + ". " + titleOf(ts, list.get(i));
+                    q.addOption(label.length() > 100 ? label.substring(0, 97) + "..." : label, String.valueOf(m.uid),
+                            m.requesterName == null ? (m.fromRadio ? "radio" : null) : "added by " + m.requesterName);
+                }
+                if (!q.getOptions().isEmpty()) rows.add(ActionRow.of(q.build()));
             }
-            if (java.util.Arrays.stream(GuildSettings.IDLE_CHOICES).noneMatch(m -> m == cur0)) {
-                menu.addOption("Leave after " + GuildSettings.idleLabel(cur0) + " idle", String.valueOf(cur0));
-            }
-            menu.setDefaultValues(String.valueOf(cur0));
-            rows.add(ActionRow.of(menu.build()));
         }
-        // Row 4: guide + changelog
-        rows.add(ActionRow.of(Button.link(GUIDE_URL, "Guide & updates")));
+
+        // Row 4: paging, more controls, guide
+        List<Button> r4 = new ArrayList<>();
+        if (total > ConfigUtils.QUEUE_PAGE_SIZE) {
+            r4.add(Button.secondary(BTN_PREV, "◀ Prev").withDisabled(page <= 0));
+            r4.add(Button.secondary(BTN_NEXT, "Next ▶").withDisabled(page >= pages - 1));
+        }
+        if (ts != null && (cur != null || connected)) r4.add(Button.secondary(PlayerControls.BTN_MORE, "More"));
+        r4.add(Button.link(GUIDE_URL, "Guide & updates"));
+        rows.add(ActionRow.of(r4));
+        return rows;
+    }
+
+    /** "More" opens privately (only the person who pressed it sees it): seek, filters, volume, idle timer, history. */
+    public EmbedBuilder moreEmbed() {
+        TrackScheduler ts = scheduler;
+        GuildSettings gs = GuildSettings.of(guildId);
+        AudioTrack cur = ts == null ? null : ts.getPlayer().getPlayingTrack();
+        EmbedBuilder eb = new EmbedBuilder().setColor(new Color(0x2b2d31)).setTitle("More controls");
+        if (cur != null) eb.setDescription("**" + titleOf(ts, cur) + "**  `" + dur(cur.getPosition()) + " / " + dur(cur.getDuration()) + "`");
+        eb.addField("Sound", ts == null ? "Normal" : ts.getFilter().label, true);
+        eb.addField("Volume", ts == null ? "-" : String.valueOf(ts.getPlayer().getVolume()), true);
+        eb.addField("Leave when idle", GuildSettings.idleLabel(gs.idleMinutes), true);
+        if (gs.djMode) eb.addField("DJ mode", "on (" + Perms.djRoleName(ts.getGuild()) + " role)", true);
+        if (!notice.isBlank()) eb.setFooter(notice);
+        return eb;
+    }
+
+    public List<ActionRow> moreComponents() {
+        TrackScheduler ts = scheduler;
+        AudioTrack cur = ts == null ? null : ts.getPlayer().getPlayingTrack();
+        boolean seek = cur != null && cur.isSeekable();
+        GuildSettings gs = GuildSettings.of(guildId);
+        List<ActionRow> rows = new ArrayList<>();
+        rows.add(ActionRow.of(
+                Button.secondary(PlayerControls.BTN_SEEK + "-10000", "-10s").withDisabled(!seek),
+                Button.secondary(PlayerControls.BTN_SEEK + "-5000", "-5s").withDisabled(!seek),
+                Button.secondary(PlayerControls.BTN_RESTART, "Restart song").withDisabled(!seek),
+                Button.secondary(PlayerControls.BTN_SEEK + "5000", "+5s").withDisabled(!seek),
+                Button.secondary(PlayerControls.BTN_SEEK + "10000", "+10s").withDisabled(!seek)));
+        StringSelectMenu.Builder f = StringSelectMenu.create(PlayerControls.MENU_FILTER).setPlaceholder("Sound filter");
+        for (SoundFilters.Filter x : SoundFilters.Filter.values()) f.addOption(x.label, x.name());
+        f.setDefaultValues((ts == null ? SoundFilters.Filter.OFF : ts.getFilter()).name());
+        rows.add(ActionRow.of(f.build()));
+        int cur0 = gs.idleMinutes;
+        StringSelectMenu.Builder menu = StringSelectMenu.create(PlayerControls.MENU_IDLE).setPlaceholder("Leave after idle");
+        for (int m : GuildSettings.IDLE_CHOICES) {
+            menu.addOption(m > 0 ? "Leave after " + GuildSettings.idleLabel(m) + " idle" : "Never leave on idle (only when dismissed or alone)", String.valueOf(m));
+        }
+        if (java.util.Arrays.stream(GuildSettings.IDLE_CHOICES).noneMatch(m -> m == cur0)) {
+            menu.addOption("Leave after " + GuildSettings.idleLabel(cur0) + " idle", String.valueOf(cur0));
+        }
+        menu.setDefaultValues(String.valueOf(cur0));
+        rows.add(ActionRow.of(menu.build()));
+        rows.add(ActionRow.of(
+                Button.secondary(PlayerControls.BTN_VOL + "-10", "Volume -"),
+                Button.secondary(PlayerControls.BTN_VOL + "10", "Volume +"),
+                Button.secondary(PlayerControls.BTN_HISTORY, "History"),
+                gs.djMode ? Button.success(PlayerControls.BTN_DJ, "DJ mode: on") : Button.secondary(PlayerControls.BTN_DJ, "DJ mode: off")));
         return rows;
     }
 

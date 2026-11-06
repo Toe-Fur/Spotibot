@@ -153,7 +153,7 @@ public class SpotifyUtils {
 
     public static List<String> getYouTubePlaylistTitles(String playlistUrl) throws IOException {
         List<String> titles = new ArrayList<>();
-        ProcessBuilder pb = new ProcessBuilder("yt-dlp", "--flat-playlist", "-J", playlistUrl);
+        ProcessBuilder pb = Tools.withPath(new ProcessBuilder(Tools.ytdlp(), "--flat-playlist", "-J", playlistUrl));
         Process process = pb.start();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
             StringBuilder json = new StringBuilder();
@@ -167,7 +167,7 @@ public class SpotifyUtils {
     }
 
     public static String getYouTubeTitle(String videoUrl) throws IOException {
-        ProcessBuilder pb = new ProcessBuilder("yt-dlp", "--get-title", videoUrl);
+        ProcessBuilder pb = Tools.withPath(new ProcessBuilder(Tools.ytdlp(), "--get-title", videoUrl));
         Process process = pb.start();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
             return reader.readLine();

@@ -40,9 +40,21 @@ public class DownloadQueueHandler {
 
     public static void queueAll(List<String> inputs, String notice, boolean next, TrackScheduler trackScheduler,
                                 GuildMessageChannel messageChannel, Guild guild, BlockingQueue<Runnable> downloadQueue) {
+        queueAll(inputs, notice, next, trackScheduler, messageChannel, guild, downloadQueue, null);
+    }
+
+    public static void queueAll(List<String> inputs, String notice, boolean next, TrackScheduler trackScheduler,
+                                GuildMessageChannel messageChannel, Guild guild, BlockingQueue<Runnable> downloadQueue,
+                                net.dv8tion.jda.api.entities.Member requester) {
         List<StreamTrack> tracks = new ArrayList<>();
         for (String in : inputs) {
             if (in != null && !in.isBlank()) tracks.add(StreamTrack.parse(in));
+        }
+        if (requester != null) {
+            for (StreamTrack t : tracks) {
+                t.requesterId = requester.getIdLong();
+                t.requesterName = requester.getEffectiveName();
+            }
         }
         queueTracks(tracks, notice, next, trackScheduler, messageChannel, guild, downloadQueue);
     }
@@ -112,14 +124,14 @@ public class DownloadQueueHandler {
     public static List<String> getYouTubePlaylistUrls(String playlistUrl) throws IOException, InterruptedException {
         List<String> urls = new ArrayList<>();
         ProcessBuilder pb = new ProcessBuilder(
-                "yt-dlp",
+                Tools.ytdlp(),
                 "--flat-playlist",
                 "--print", "webpage_url",
                 "--no-warnings",
                 playlistUrl
         );
         pb.redirectErrorStream(false);
-        Process process = pb.start();
+        Process process = Tools.withPath(pb).start();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
             String line;
             while ((line = reader.readLine()) != null) {
@@ -165,12 +177,12 @@ public class DownloadQueueHandler {
             logger.warning("Failed to copy cookies file; continuing without cookies. " + e.getMessage());
         }
 
-        List<String> cmd = new ArrayList<>(List.of("yt-dlp", "-4", "--js-runtimes", "deno", "-f", "bestaudio/best", "--no-playlist"));
+        List<String> cmd = new ArrayList<>(List.of(Tools.ytdlp(), "-4", "--js-runtimes", "deno", "-f", "bestaudio/best", "--no-playlist"));
         if (cookiePathToUse != null) cmd.addAll(List.of("--cookies", cookiePathToUse));
         if (extractorArgs != null) cmd.addAll(List.of("--extractor-args", extractorArgs));
         cmd.addAll(List.of("-o", outputFilePath, query));
 
-        ProcessBuilder downloadBuilder = new ProcessBuilder(cmd);
+        ProcessBuilder downloadBuilder = Tools.withPath(new ProcessBuilder(cmd));
         downloadBuilder.redirectErrorStream(true);
         logger.info("Running: " + String.join(" ", cmd));
 

@@ -7,6 +7,25 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Tidier queue message.** Four rows: `Pause` `Skip` `Stop` `Leave` `Lyrics`, the modes (`Shuffle` `Repeat` `Radio` `Gaming` `Save`),
+  a **queue picker** dropdown, and `Prev` `Next` `More` `Guide`. **More** opens private controls only you see: seek -10/-5/+5/+10 s,
+  restart song, sound filter, volume -/+, the idle timer, History and DJ mode.
+- **Move or remove songs** — pick a song from the queue dropdown, then Play next, Move to end or Remove.
+- **`/search <song>`** — shows the top 5 matches so you can pick the right version (original, live, remix).
+- **Lyrics** — `Lyrics` button or `/lyrics` (only you see them), `!lyrics`. From lrclib.net.
+- **Vote skip** — with 3 or more people listening, Skip needs a majority unless you added the song (or you're a DJ).
+- **Sound filters** — Normal, Bass boost, Nightcore, Slowed, 8D audio: in More, `/filter`, `!filter nightcore`, or "Spotibot, bass boost".
+- **Volume levelling** (streaming mode) — every song is loudness-normalised (-14 LUFS), so loud and quiet songs play at the same volume.
+  Songs cached before this are levelled by a background job.
+- **History** — `/history`, `!history` and the History button list recent songs with who added them; pick one to play it again.
+  **`/replay`**, `!replay` or "Spotibot, play what we played last night" queues the previous listening session.
+- **Weekly recap** — Sundays at 18:00 the bot posts the week's most played songs and top DJs (only if 10+ songs were played).
+  Turn off with `!settings recap off` or `/settings weekly_recap:false`.
+- **DJ mode** (off by default; only the server owner or the bot's owner can switch it: `/dj`, `!dj on|off`, or More) — only people with
+  the DJ role (or a role you pick with `/dj role:`), server managers and the owner can stop, leave, pause, change modes, filters and volume,
+  skip without a vote, and remove other people's songs. Everyone can still add songs, vote to skip, and skip or remove their own songs.
+- More voice commands: "skip ahead 30 seconds", "go back 10 seconds", "restart the song", "bass boost", "nightcore", "slowed", "8D",
+  "normal sound".
 - **Idle timer on the queue message** — a "Leave after idle" dropdown sets how long the bot waits in the voice channel with
   nothing playing before it leaves: 5, 10, 15, 30, 45 or 60 minutes, 1.5 or 2 hours, or never (it still leaves when
   everyone else has gone). Handy with Gaming mode, where the bot sits in the channel waiting for "Spotibot, ...".
