@@ -125,6 +125,7 @@ public final class Interactions {
             e.editMessageEmbeds(panel.moreEmbed().build()).setComponents(panel.moreComponents()).queue(null, x -> {});
         } else {
             if (!result.isEmpty()) panel.setNoticeQuiet(result);
+            panel.touched();
             e.editMessageEmbeds(panel.render().build()).setComponents(panel.components()).queue(null, x -> {});
         }
     }
@@ -175,6 +176,7 @@ public final class Interactions {
                 if (e.getMessage().isEphemeral()) {
                     e.editMessageEmbeds(panel.moreEmbed().build()).setComponents(panel.moreComponents()).queue(null, x -> {});
                 } else {
+                    panel.touched();
                     e.editMessageEmbeds(panel.render().build()).setComponents(panel.components()).queue(null, x -> {});
                 }
             }
@@ -219,15 +221,10 @@ public final class Interactions {
             h.sendMessage("Nothing is playing right now.").queue();
             return;
         }
-        StreamTrack meta = ts.metaOf(cur);
-        String title = meta != null ? meta.songTitle : ts.getTitle(cur.getIdentifier());
-        String artist = meta != null ? meta.songArtist : "";
-        if ((artist == null || artist.isBlank()) && title != null && title.contains(" - ")) {
-            artist = title.substring(title.indexOf(" - ") + 3);
-            title = title.substring(0, title.indexOf(" - "));
-        }
-        Lyrics.Result r = Lyrics.find(artist, title);
+        Lyrics.Result r = Lyrics.forTrack(ts, cur);
         if (r == null) {
+            StreamTrack meta = ts.metaOf(cur);
+            String title = meta != null ? meta.display : ts.getTitle(cur.getIdentifier());
             h.sendMessage("No lyrics found for " + (title == null ? "this song" : title) + ".").queue();
             return;
         }

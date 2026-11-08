@@ -30,6 +30,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class QueuePanel {
     private static final Logger logger = LoggerFactory.getLogger(QueuePanel.class);
     private static final long DEBOUNCE_MS = 1500;
+    /** At most one panel edit per this many ms per server (Discord rate-limits message edits; 429s were common). */
+    private static final long MIN_INTERVAL_MS = 3000;
 
     public static final String BTN_PREV = CommandHandler.BTN_QUEUE_PREV;
     public static final String BTN_NEXT = CommandHandler.BTN_QUEUE_NEXT;
@@ -57,6 +59,8 @@ public final class QueuePanel {
     private volatile boolean repost;            // next flush: delete old message, post a new one at the bottom
     private volatile boolean scheduled;
     private volatile boolean checkBottom;
+    private volatile long lastFlush;
+    private volatile String lastSent = "";      // rendered panel last sent; identical renders are skipped
     private volatile int page;
     private volatile String notice = "";        // e.g. "Added 50 songs from Spotify playlist"
     final AtomicInteger loading = new AtomicInteger();
@@ -120,7 +124,14 @@ public final class QueuePanel {
             if (scheduled) return;
             scheduled = true;
         }
-        EXEC.schedule(this::flush, DEBOUNCE_MS, TimeUnit.MILLISECONDS);
+        long wait = Math.max(DEBOUNCE_MS, lastFlush + MIN_INTERVAL_MS - System.currentTimeMillis());
+        EXEC.schedule(this::flush, wait, TimeUnit.MILLISECONDS);
+    }
+
+    /** A button handler just edited the panel itself (interaction reply): count it toward the edit rate. */
+    public void touched() {
+        lastFlush = System.currentTimeMillis();
+        lastSent = "";
     }
 
     /** !stop: freeze the panel as "Stopped" and forget it. */
@@ -155,9 +166,13 @@ public final class QueuePanel {
                 ch.deleteMessageById(old).queue(null, e -> {});
             }
             repost = false;
+            String sig = embed.toData().toString() + rows;
+            if (messageId != 0 && sig.equals(lastSent)) return; // nothing changed
+            lastFlush = System.currentTimeMillis();
             if (messageId != 0) {
                 try {
                     ch.editMessageEmbedsById(messageId, embed).setComponents(rows).complete();
+                    lastSent = sig;
                     return;
                 } catch (Exception e) {
                     logger.info("Queue panel edit failed ({}), posting a new one", e.getMessage());
@@ -166,6 +181,7 @@ public final class QueuePanel {
             }
             Message m = ch.sendMessageEmbeds(embed).setComponents(rows).complete();
             messageId = m.getIdLong();
+            lastSent = sig;
         } catch (Exception e) {
             logger.warn("Queue panel update failed: {}", e.toString());
         }

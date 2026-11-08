@@ -205,7 +205,7 @@ public final class PlayerControls {
         if (seed == null) return null;
         Spotibot bot = VoiceSession.bot();
         java.util.concurrent.CompletableFuture.runAsync(() -> {
-            var more = StreamTrack.radio(seed, 10, ts.seenIds());
+            var more = StreamTrack.radio(seed, 10, ts.seen().ids(), ts.seen());
             if (more.isEmpty()) {
                 QueuePanel p = QueuePanel.peek(ts.getGuild().getIdLong());
                 if (p != null) p.setNotice("No similar songs found for " + seed.display);

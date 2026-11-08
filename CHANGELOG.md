@@ -38,6 +38,14 @@ All notable changes to this project will be documented in this file.
   short recognised command within 5 seconds counts. The full phrase of every command the bot acts on is logged.
 
 ### Fixed
+- **Lyrics match the song that's actually playing.** Typed and voice requests are now resolved to the real song before it plays,
+  so lyrics (and History, Save, Radio) use its real title and artist instead of what was typed. Lyrics are only shown when the
+  title and the artist or song length agree; video titles like "Artist - Song (Lyrics)" from lyrics channels are understood.
+  If no matching lyrics exist you get "No lyrics found" rather than another song's lyrics.
+- **Radio no longer repeats songs.** Songs requested by name were not remembered as played, and the same song uploaded twice
+  (album version, lyric video) counted as two. Radio now skips anything already played or queued this session.
+- The queue message updates at most every 3 seconds and skips edits when nothing changed (fewer Discord rate limits).
+- Typed requests now show the song that was found in the queue (e.g. "Hit 'Em Up - 2Pac"), so you can see what will play.
 - Spotify credentials are read from the config folder (`CONFIG_DIR`) instead of a path relative to the working directory.
 
 ---

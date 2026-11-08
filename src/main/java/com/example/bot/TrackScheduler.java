@@ -34,7 +34,7 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
     /** Request info per loaded track (keyed by AudioTrack identity) for Save / Radio / panel labels. */
     private final Map<AudioTrack, StreamTrack> meta = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
     /** Video ids played or queued this session (radio avoids repeats). */
-    private final java.util.Set<String> seen = ConcurrentHashMap.newKeySet();
+    private final StreamTrack.SongSet seen = new StreamTrack.SongSet();
     private volatile StreamTrack lastPlayed;
     private volatile boolean radioBusy;
 
@@ -188,7 +188,7 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
         return m != null ? m : lastPlayed;
     }
 
-    public java.util.Set<String> seenIds() {
+    public StreamTrack.SongSet seen() {
         return seen;
     }
 
@@ -368,7 +368,7 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
                 public void trackLoaded(AudioTrack track) {
                     trackTitles.put(track.getIdentifier(), title);
                     meta.put(track, req);
-                    if (req.videoId != null) seen.add(req.videoId);
+                    seen.add(req);
                     queue(track, position == null ? -1 : position.getAsInt());
                     ok[0] = true;
                 }
@@ -420,7 +420,7 @@ public class TrackScheduler implements com.sedmelluq.discord.lavaplayer.player.e
         radioBusy = true;
         java.util.concurrent.CompletableFuture.runAsync(() -> {
             try {
-                List<StreamTrack> more = StreamTrack.radio(seed, 10, seen);
+                List<StreamTrack> more = StreamTrack.radio(seed, 10, seen.ids(), seen);
                 if (!more.isEmpty() && isQueueEmpty()) {
                     DownloadQueueHandler.queueTracks(more, "Radio: songs like " + seed.display, false,
                             this, panel.channel(), guild, bot.getDownloadQueue());

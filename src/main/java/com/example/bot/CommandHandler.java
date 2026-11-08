@@ -175,10 +175,7 @@ public class CommandHandler {
             tidy(event);
             Lyrics.Result r = null;
             var cur = trackScheduler.getPlayer().getPlayingTrack();
-            if (cur != null) {
-                StreamTrack m = trackScheduler.metaOf(cur);
-                r = Lyrics.find(m != null ? m.songArtist : "", m != null ? m.songTitle : cur.getInfo().title);
-            }
+            if (cur != null) r = Lyrics.forTrack(trackScheduler, cur);
             if (r == null) {
                 PlayerControls.flash(messageChannel, cur == null ? "Nothing is playing right now." : "No lyrics found for this song.");
             } else {

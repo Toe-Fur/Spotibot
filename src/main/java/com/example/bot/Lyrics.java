@@ -1,5 +1,6 @@
 package com.example.bot;
 
+import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.slf4j.Logger;
@@ -25,34 +26,109 @@ public final class Lyrics {
     private Lyrics() {
     }
 
-    public static Result find(String artist, String title) {
-        if (title == null || title.isBlank()) return null;
-        String t = clean(title);
-        String a = artist == null ? "" : artist.split(",| & | feat")[0].trim();
-        try {
-            Result r = search("track_name=" + enc(t) + (a.isEmpty() ? "" : "&artist_name=" + enc(a)));
-            if (r == null) r = search("q=" + enc((t + " " + a).trim()));
-            return r;
-        } catch (Exception e) {
-            logger.warn("lyrics lookup failed: {}", e.toString());
-            return null;
-        }
+    /** Lyrics for the song that is playing right now (null = nothing playing or none found). */
+    public static Result forTrack(TrackScheduler ts, AudioTrack cur) {
+        if (cur == null) return null;
+        StreamTrack meta = ts.metaOf(cur);
+        String title = meta != null && meta.songTitle != null && !meta.songTitle.isBlank() ? meta.songTitle : ts.getTitle(cur.getIdentifier());
+        if (title == null || title.isBlank()) title = cur.getInfo().title;
+        String artist = meta != null ? meta.songArtist : "";
+        int secs = meta != null ? meta.durationSec : 0;
+        if (secs <= 0 && cur.getDuration() > 0 && cur.getDuration() < 24L * 3600_000) secs = (int) (cur.getDuration() / 1000);
+        return find(artist, title, secs);
     }
 
-    private static Result search(String query) throws Exception {
+    public static Result find(String artist, String title) {
+        return find(artist, title, 0);
+    }
+
+    /**
+     * Search LRCLIB and only accept a result that really is this song: the title must match and either
+     * the artist or the song length (within a few seconds) must agree. Video-style titles
+     * ("Ram Jam - Black Betty (Lyrics)" uploaded by a lyrics channel) are tried both ways round.
+     * Better "no lyrics found" than somebody else's song.
+     */
+    public static Result find(String artist, String title, int durationSec) {
+        if (title == null || title.isBlank()) return null;
+        String t = clean(title);
+        String a = artist == null ? "" : artist.replaceAll("(?i) - topic$", "").split(",| & | feat")[0].trim();
+        java.util.LinkedHashMap<String, String> cands = new java.util.LinkedHashMap<>(); // title -> artist
+        int dash = t.indexOf(" - ");
+        if (dash > 0) {
+            String left = t.substring(0, dash).trim(), right = clean(t.substring(dash + 3));
+            cands.put(right, left);   // "Artist - Title" (usual on YouTube)
+            cands.putIfAbsent(left, right.isEmpty() ? a : right);
+        }
+        cands.putIfAbsent(t, a);
+        String known = StreamTrack.norm((t + " " + a).toLowerCase(java.util.Locale.ROOT));
+        java.util.Map<Long, JSONObject> seen = new java.util.LinkedHashMap<>();
+        try {
+            for (var c : cands.entrySet()) {
+                String ct = c.getKey(), ca = c.getValue();
+                if (ct.isBlank()) continue;
+                collect(seen, "track_name=" + enc(ct) + (ca.isBlank() ? "" : "&artist_name=" + enc(ca)));
+                Result best = pick(seen.values(), cands, known, durationSec);
+                if (best != null) return best;
+            }
+            for (var c : cands.entrySet()) {
+                collect(seen, "q=" + enc((c.getKey() + " " + c.getValue()).trim()));
+                Result best = pick(seen.values(), cands, known, durationSec);
+                if (best != null) return best;
+            }
+        } catch (Exception e) {
+            logger.warn("lyrics lookup failed: {}", e.toString());
+        }
+        return null;
+    }
+
+    private static void collect(java.util.Map<Long, JSONObject> into, String query) throws Exception {
         HttpRequest req = HttpRequest.newBuilder(URI.create("https://lrclib.net/api/search?" + query))
                 .header("User-Agent", "Spotibot (https://github.com/Toe-Fur/Spotibot)")
                 .timeout(Duration.ofSeconds(10)).build();
         HttpResponse<String> r = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
-        if (r.statusCode() != 200) return null;
+        if (r.statusCode() != 200) return;
         JSONArray arr = new JSONArray(r.body());
-        for (int i = 0; i < arr.length(); i++) {
+        for (int i = 0; i < arr.length() && i < 20; i++) {
             JSONObject o = arr.getJSONObject(i);
-            String plain = o.optString("plainLyrics", "");
-            if (!plain.isBlank()) return new Result(o.optString("trackName"), o.optString("artistName"), plain.trim());
-            if (o.optBoolean("instrumental")) return new Result(o.optString("trackName"), o.optString("artistName"), "(instrumental)");
+            into.putIfAbsent(o.optLong("id", -i - 1L - into.size()), o);
         }
-        return null;
+    }
+
+    private static Result pick(java.util.Collection<JSONObject> results, java.util.Map<String, String> cands, String known, int durationSec) {
+        JSONObject best = null;
+        int bestScore = Integer.MIN_VALUE;
+        for (JSONObject o : results) {
+            String plain = o.optString("plainLyrics", "");
+            if (plain.isBlank() && !o.optBoolean("instrumental")) continue;
+            String rt = StreamTrack.norm(clean(o.optString("trackName")).toLowerCase(java.util.Locale.ROOT));
+            String ra = StreamTrack.norm(o.optString("artistName").toLowerCase(java.util.Locale.ROOT).split(",| & | feat")[0]);
+            if (rt.isEmpty()) continue;
+            int titleSim = 0;
+            boolean artistOk = false;
+            for (var c : cands.entrySet()) {
+                String ct = StreamTrack.norm(c.getKey().toLowerCase(java.util.Locale.ROOT));
+                String ca = StreamTrack.norm(c.getValue().toLowerCase(java.util.Locale.ROOT));
+                int sim = ct.equals(rt) ? 3 : (!ct.isEmpty() && (ct.contains(rt) || rt.contains(ct))) ? 2 : 0;
+                if (sim > titleSim) titleSim = sim;
+                if (!ra.isEmpty() && !ca.isEmpty() && (ca.contains(ra) || ra.contains(ca))) artistOk = true;
+            }
+            if (!ra.isEmpty() && (" " + known + " ").contains(" " + ra + " ")) artistOk = true;
+            int durScore = 0;
+            double rd = o.optDouble("duration", 0);
+            if (durationSec > 0 && rd > 0) {
+                double diff = Math.abs(rd - durationSec);
+                durScore = diff <= 3 ? 3 : diff <= 10 ? 1 : diff > 30 ? -3 : 0;
+            }
+            if (titleSim < 2 || (!artistOk && durScore < 3) || durScore < 0 && !artistOk) continue;
+            int score = titleSim * 2 + (artistOk ? 4 : 0) + durScore + (plain.isBlank() ? 0 : 1);
+            if (score > bestScore) {
+                bestScore = score;
+                best = o;
+            }
+        }
+        if (best == null) return null;
+        String plain = best.optString("plainLyrics", "");
+        return new Result(best.optString("trackName"), best.optString("artistName"), plain.isBlank() ? "(instrumental)" : plain.trim());
     }
 
     /** Drop "(Official Video)", "[Lyrics]", "- Remastered 2011" and similar from a title. */

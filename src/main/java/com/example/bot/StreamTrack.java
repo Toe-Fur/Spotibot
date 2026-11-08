@@ -39,7 +39,10 @@ public final class StreamTrack {
 
     public final String title;
     public final String artist;
-    public final String videoId;
+    /** YouTube video id; null for a by-name request until {@link #resolve()} finds the song. */
+    public volatile String videoId;
+    /** Length of the matched song in seconds (0 = unknown); lyrics use it to check they found the right song. */
+    public volatile int durationSec;
     public String display;
     /** Best-known song name/artist (filled from oEmbed for links) for Save and Radio. */
     public volatile String songTitle;
@@ -127,6 +130,11 @@ public final class StreamTrack {
      * and anything in `exclude` (video ids already played/queued).
      */
     public static List<StreamTrack> radio(StreamTrack seed, int limit, java.util.Set<String> exclude) {
+        return radio(seed, limit, exclude, null);
+    }
+
+    /** As above; `seen` also drops songs already played/queued under a different upload (title + artist match). */
+    public static List<StreamTrack> radio(StreamTrack seed, int limit, java.util.Set<String> exclude, SongSet seen) {
         List<StreamTrack> out = new java.util.ArrayList<>();
         if (!enabled() || seed == null) return out;
         try {
@@ -147,6 +155,9 @@ public final class StreamTrack {
                 String artist = t.optString("artist", "").trim();
                 StreamTrack st = new StreamTrack(title, artist, vid, artist.isEmpty() ? title : title + " - " + artist);
                 st.fromRadio = true;
+                st.durationSec = t.optInt("durationSeconds", 0);
+                if (seen != null && seen.contains(st)) continue; // same song, different upload
+                if (seen != null) seen.add(st);                 // ...and no doubles within this batch
                 out.add(st);
             }
         } catch (Exception e) {
@@ -206,6 +217,87 @@ public final class StreamTrack {
         } catch (Exception e) {
             logger.warn("stream-server HEAD failed for {}: {}", display, e.toString());
             return false;
+        }
+    }
+
+    /**
+     * Streaming mode: ask the stream server which song this request will actually play (the same match
+     * /stream would make) and take its real title, artist and length. Lyrics, history, Save and radio
+     * then follow the song that is playing, not what was typed. Links get their title the same way.
+     */
+    public void resolve() {
+        if (!enabled()) return;
+        boolean byName = videoId == null;
+        if (!byName && songTitle != null && !songTitle.isBlank() && durationSec > 0) return; // radio/search: already known
+        try {
+            String q = byName ? "artist=" + enc(artist) + "&title=" + enc(title) : "videoId=" + enc(videoId);
+            HttpRequest req = HttpRequest.newBuilder(URI.create(BASE + "/resolve?" + q)).timeout(Duration.ofSeconds(60)).build();
+            HttpResponse<String> r = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
+            if (r.statusCode() != 200) return;
+            JSONObject j = new JSONObject(r.body());
+            String vid = j.optString("videoId", "");
+            if (vid.length() != 11) return;
+            String t = j.optString("title", "").trim();
+            String a = j.optString("artist", "").trim();
+            videoId = vid;
+            durationSec = (int) Math.round(j.optDouble("durationSeconds", 0));
+            if (!t.isEmpty() && (byName || songTitle == null || songTitle.isBlank())) {
+                songTitle = t;
+                songArtist = a;
+                display = a.isEmpty() || t.contains(a) ? t : t + " - " + a;
+            }
+        } catch (Exception e) {
+            logger.debug("resolve failed for {}: {}", display, e.toString());
+        }
+    }
+
+    /** Normalised "title|artist" key, so one song uploaded several times counts once. */
+    static String songKey(String title, String artist) {
+        String t = Lyrics.clean(title == null ? "" : title).toLowerCase(java.util.Locale.ROOT);
+        String a = (artist == null ? "" : artist).toLowerCase(java.util.Locale.ROOT).replaceAll(" - topic$", "").split(",| & | feat| x ")[0];
+        return norm(t) + "|" + norm(a);
+    }
+
+    static String norm(String s) {
+        return java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .replaceAll("(?i)\\s[\\(\\[]?(feat|ft|featuring)\\.?\\s.*$", "")
+                .replaceAll("[^\\p{L}\\p{N}]+", " ").trim();
+    }
+
+    /**
+     * Songs played or queued this session, matched loosely: the same video id, or the same title by the
+     * same artist even when it's a different upload ("Black Betty - Ram Jam" vs
+     * "Ram Jam - Black Betty (Lyrics)" by a lyrics channel).
+     */
+    public static final class SongSet {
+        private final java.util.Set<String> ids = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        private final java.util.List<String[]> songs = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+        public void add(StreamTrack t) {
+            if (t.videoId != null) ids.add(t.videoId);
+            String k = songKey(t.songTitle, t.songArtist);
+            int bar = k.indexOf('|');
+            String title = k.substring(0, bar), artist = k.substring(bar + 1);
+            if (title.length() >= 2) songs.add(new String[]{title, artist});
+        }
+
+        public boolean contains(StreamTrack t) {
+            if (t.videoId != null && ids.contains(t.videoId)) return true;
+            String k = songKey(t.songTitle, t.songArtist);
+            int bar = k.indexOf('|');
+            String title = k.substring(0, bar), artist = k.substring(bar + 1);
+            String all = " " + title + " " + artist + " ";
+            for (String[] s : songs) {
+                if (s[0].equals(title) && (s[1].equals(artist) || s[1].isEmpty() || artist.isEmpty())) return true;
+                // different upload: "ram jam black betty" + "7clouds rock" still holds both "black betty" and "ram jam"
+                if (!s[1].isEmpty() && all.contains(" " + s[0] + " ") && all.contains(" " + s[1] + " ")) return true;
+            }
+            return false;
+        }
+
+        public java.util.Set<String> ids() {
+            return ids;
         }
     }
 

@@ -82,12 +82,14 @@ public class DownloadQueueHandler {
             downloadQueue.offer(() -> {
                 boolean ok = false;
                 try {
-                    t.fetchTitleIfLink();
                     long t0 = System.currentTimeMillis();
                     if (streaming) {
+                        t.resolve(); // the song that will really play: real title/artist for lyrics, history, radio
+                        if (t.songTitle == null || t.songTitle.isBlank()) t.fetchTitleIfLink();
                         if (!ahead.isEmpty()) StreamTrack.prefetch(ahead);
                         ok = t.warm() && trackScheduler.load(t.streamUrl(), t, position);
                     } else {
+                        t.fetchTitleIfLink();
                         File f = download(t, serverFolder);
                         ok = f != null && trackScheduler.load(f.getAbsolutePath(), t, position);
                     }
